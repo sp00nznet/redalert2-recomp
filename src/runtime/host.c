@@ -1299,6 +1299,22 @@ int main(int argc, char** argv) {
     printf(RA2_TITLE " recomp host\n  lifted functions in dispatch: %u\n",
            recomp_dispatch_count);
 
+    {   /* The lifted C and its patches are one build's: another crashes in game. */
+        uint8_t head[4096] = { 0 };
+        FILE* f = fopen(exe_full, "rb");
+        if (f) { fread(head, 1, sizeof head, f); fclose(f); }
+        uint32_t nt = *(const uint32_t*)(head + 0x3C);
+        uint32_t stamp = nt < sizeof head - 12 ? *(const uint32_t*)(head + nt + 8) : 0;
+        if (stamp != RA2_EXE_STAMP) {
+            char msg[MAX_PATH + 256];
+            _snprintf(msg, sizeof msg - 1, "%s is not the build this host was lifted from "
+                      "(PE timestamp 0x%08X, wanted 0x%08X). Lift and build from the Steam "
+                      "release's " RA2_EXE_NAME " (README, Getting Started).", exe_full, stamp, RA2_EXE_STAMP);
+            fprintf(stderr, "%s\n", msg);
+            if (!g_headless) MessageBoxA(NULL, msg, RA2_TITLE " (recomp)", MB_ICONERROR);
+            return 1;
+        }
+    }
     uint32_t span = native32_map(exe_full, RA2_IMAGE_BASE);
     if (!span) { fprintf(stderr, "cannot map %s at 0x%08X\n", exe_full, RA2_IMAGE_BASE); return 1; }
     printf("  mapped %s: 0x%08X-0x%08X\n", exe, RA2_IMAGE_BASE, RA2_IMAGE_BASE + span);

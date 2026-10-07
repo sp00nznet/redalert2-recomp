@@ -259,7 +259,7 @@ def targets():
     return {
         'gamemd': dict(exe=EXE, catalog=CATALOG, seeds=SEEDS, out=OUT, stats=STATS,
                        run_seeds=RUN_SEEDS, hooks=HOOKS, exe_name='gamemd.exe', ini_name='RA2MD.INI',
-                       title="Yuri's Revenge", game_frame=0x00A8ED84,
+                       title="Yuri's Revenge", game_frame=0x00A8ED84, stamp=0x3BDF544E,
                        patches=lambda code, cs: {**sidebar_rows_patches(code, cs), **HD_VOXEL_PATCHES}),
         'game': dict(exe=os.path.join(_HERE, 'game', 'game.exe'),
                      catalog=os.path.join(_HERE, 'work', 'game', 'functions.json'),
@@ -267,7 +267,7 @@ def targets():
                      out=os.path.join(_HERE, 'src', 'recomp', 'gen_game'),
                      stats=os.path.join(_HERE, 'work', 'game', 'lift_stats.json'),
                      run_seeds=RUN_SEEDS_GAME, hooks=HOOKS_GAME, exe_name='game.exe', ini_name='RA2.INI',
-                     title='Red Alert 2', game_frame=0x00A40D2C,
+                     title='Red Alert 2', game_frame=0x00A40D2C, stamp=0x3B1EBBED,
                      # Red Alert 2's sidebar: its code at 0x0067B000..0x00683000, its
                      # height 0x0083962C and top 0x00ABCD64, the globals the same divide
                      # by 50 reads as Yuri's Revenge's does.
@@ -288,6 +288,15 @@ def write_target_header(out, name, t):
         f.write('#define RA2_TITLE "%s"\n' % t['title'])
         f.write('#define RA2_HOOK_DEBUGLOG_VA 0x%08Xu\n' % (debuglog[0] if debuglog else 0))
         f.write('#define RA2_GAME_FRAME_VA 0x%08Xu   /* the game\'s frame count */\n' % t['game_frame'])
+        f.write('#define RA2_EXE_STAMP 0x%08Xu   /* its PE timestamp: the build lifted */\n' % t['stamp'])
+
+
+def exe_stamp(path):
+    """The PE header's TimeDateStamp: which build of the game an exe is."""
+    with open(path, 'rb') as f:
+        head = f.read(4096)
+    nt = int.from_bytes(head[0x3C:0x40], 'little')
+    return int.from_bytes(head[nt + 8:nt + 12], 'little')
 
 
 def main():
@@ -316,6 +325,14 @@ def main():
     if not os.path.exists(args.catalog):
         sys.exit('no catalog at %s -- run disasm32.py first (README, Step by step)' % args.catalog)
 
+    # The patches below are at this build's addresses; another build lifts,
+    # but they land in the wrong code, and it crashes in game (issue #2).
+    stamp = exe_stamp(args.exe)
+    if stamp != tgt['stamp']:
+        sys.exit('%s is not the build this project supports: its PE timestamp is 0x%08X, '
+                 'the Steam release\'s is 0x%08X (docs/RECON.md). A different release '
+                 '(EA App, Origin, a CD, a CnCNet- or mod-patched exe) needs its own '
+                 'addresses; use the Steam build\'s %s.' % (args.exe, stamp, tgt['stamp'], tgt['exe_name']))
     info = analyze_pe(args.exe)
     iat = build_iat_map(info)
     cs, ce = info.code_start, info.code_end
