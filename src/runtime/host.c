@@ -74,8 +74,88 @@ static void shim_MessageBoxA(void) {
  * it, and nothing appears on the screen or takes over an RDP session. */
 #define HL_EXSTYLE (WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)
 
+/* Under Wine (CrossOver on a Mac) WS_EX_NOACTIVATE is not enough. A Button
+ * the presenter clicks calls SetFocus, Wine activates its invisible top-level
+ * window, and the Mac makes that the key window: the presenter went inactive
+ * (the Mac's own cursor came back), the button's SetCapture took the real
+ * mouse, and the button-up arrived at its real place on the screen, outside
+ * it, so no click ever completed. Windows never moves the foreground for a
+ * background thread's SetFocus. So under Wine, with the presenter, a CBT hook
+ * on the game's thread refuses that activation, and remembers where the game
+ * asked for the focus: that is where the presenter sends keys
+ * (host_game_focus). */
+static HHOOK g_cbt;
+static volatile HWND g_game_focus;
+
+static LRESULT CALLBACK cbt_hook(int code, WPARAM w, LPARAM l) {
+    if (code == HCBT_SETFOCUS) g_game_focus = (HWND)w;
+    else if (code == HCBT_ACTIVATE) return 1;      /* refused: the presenter stays in front */
+    return CallNextHookEx(g_cbt, code, w, l);
+}
+
+/* And the mouse. A Button takes the capture on the press the presenter
+ * forwards, and Wine then sends the real mouse to it, in coordinates of its
+ * real place on the screen: the button-up came at 603,166 to a 150x40
+ * button, so the press was cancelled, and the presenter never saw the
+ * release. On the game's thread, a mouse message nobody in the host posted
+ * (input_post_mouse) is the real mouse: it is dropped here and handed to the
+ * presenter at its screen point, which forwards it like any other. */
+static LRESULT CALLBACK wine_mouse_hook(int code, WPARAM w, LPARAM l) {
+    MSG* m = (MSG*)l;
+    if (code == HC_ACTION && m->message >= WM_MOUSEFIRST && m->message <= WM_MOUSELAST &&
+        m->message != WM_MOUSEWHEEL) {
+        if (w == PM_REMOVE && !input_posted_mouse(m->hwnd, m->message, m->lParam)) {
+            present_real_mouse(m->message, m->wParam, m->pt);
+            m->message = WM_NULL;
+        } else if (w != PM_REMOVE && !input_posted_mouse_peek(m->hwnd, m->message, m->lParam)) {
+            m->message = WM_NULL;                  /* a peek at it sees nothing either */
+        }
+    }
+    return CallNextHookEx(NULL, code, w, l);
+}
+
+static int under_wine(void) {
+    return GetProcAddress(GetModuleHandleA("ntdll.dll"), "wine_get_version") != NULL;
+}
+
+int host_under_wine(void) { return under_wine(); }   /* present.c */
+
+/* The game window keys go to: where it last asked for the focus under Wine,
+ * else NULL (ask Windows). */
+HWND host_game_focus(void) {
+    HWND f = g_game_focus;
+    return f && IsWindow(f) && IsWindowVisible(f) ? f : NULL;
+}
+
+/* The game also brings its window forward itself. Under Wine that moved the
+ * foreground to the game's thread before the hook could refuse the
+ * activation: then nothing was in front, and the button's capture had the
+ * real mouse after all. So there these are answered without the call: the
+ * game believes its window is in front, as the focus queries already say. */
+static void shim_SetForegroundWindow(void) {
+    g_eax = g_cbt ? TRUE : (uint32_t)SetForegroundWindow((HWND)(uintptr_t)ARG(0));
+    g_esp += 4 + 1 * 4;
+}
+
+static void shim_BringWindowToTop(void) {
+    g_eax = g_cbt ? TRUE : (uint32_t)BringWindowToTop((HWND)(uintptr_t)ARG(0));
+    g_esp += 4 + 1 * 4;
+}
+
+static void shim_SetActiveWindow(void) {
+    g_eax = g_cbt ? (uint32_t)(uintptr_t)g_game_hwnd
+                  : (uint32_t)(uintptr_t)SetActiveWindow((HWND)(uintptr_t)ARG(0));
+    g_esp += 4 + 1 * 4;
+}
+
 static void shim_CreateWindowExA(void) {
     uint32_t style = ARG(3);
+    if (!g_cbt && !g_headless && !g_classic && under_wine()) {
+        g_cbt = SetWindowsHookExA(WH_CBT, cbt_hook, NULL, GetCurrentThreadId());
+        SetWindowsHookExA(WH_GETMESSAGE, wine_mouse_hook, NULL, GetCurrentThreadId());
+        fprintf(stderr, "[headless] under Wine: game windows are never activated (CBT hook %s)\n",
+                g_cbt ? "on" : "FAILED");
+    }
     HWND parent = (HWND)(uintptr_t)ARG(8);
     int top = !parent || !(style & WS_CHILD);
     HWND h = CreateWindowExA(ARG(0) | (top ? HL_EXSTYLE : 0), (LPCSTR)(uintptr_t)ARG(1),
@@ -130,6 +210,22 @@ static void shim_GetWindowRect(void) {
     g_esp += 4 + 2 * 4;
 }
 
+/* SendMessage answers in screen coordinates too, where a message does: the
+ * dialogs lay a combo box out by its CB_GETDROPPEDCONTROLRECT (0x00775BC0).
+ * On a Mac the game's main window cannot sit at the top of the screen (the
+ * menu bar), so its client corner was 33 pixels down and every combo box
+ * moved down by that much: the skirmish screen's Side, Color, Start and Team
+ * boxes sat a row below their players. */
+static void shim_SendMessageA(void) {
+    UINT m = ARG(1);
+    g_eax = (uint32_t)SendMessageA((HWND)(uintptr_t)ARG(0), m, (WPARAM)ARG(2), (LPARAM)ARG(3));
+    if (m == CB_GETDROPPEDCONTROLRECT && ARG(3)) {
+        POINT o = vorigin();
+        OffsetRect((RECT*)(uintptr_t)ARG(3), -o.x, -o.y);
+    }
+    g_esp += 4 + 4 * 4;
+}
+
 static void shim_WindowFromPoint(void) {
     POINT o = vorigin(), p = { (LONG)ARG(0) + o.x, (LONG)ARG(1) + o.y };
     g_eax = (uint32_t)(uintptr_t)WindowFromPoint(p);
@@ -174,6 +270,34 @@ static void shim_SetCursorPos(void) {
     input_live_cursor((int)ARG(0), (int)ARG(1));
     g_eax = TRUE;
     g_esp += 4 + 2 * 4;
+}
+
+/* The cursor. The menus are Win32 dialogs and use the Windows cursor: the
+ * game loads its own arrow (resource 0x68) and sets it. In a battle the mouse
+ * is captured (Capture_Mouse, its +0x10 byte) and the game draws the cursor
+ * into the picture itself. The presenter hides the real cursor over the
+ * picture, so while the mouse is not captured it shows the one the game set,
+ * and the menus had no cursor at all without it. */
+#ifdef RA2_TARGET_GAME
+#define RA2_MOUSE_VA 0x00B2AF5Cu   /* the mouse object (WWMouseClass), set by its constructor */
+#else
+#define RA2_MOUSE_VA 0x00B78164u
+#endif
+static HCURSOR g_game_cursor;
+
+static void shim_SetCursor(void) {
+    HCURSOR c = (HCURSOR)(uintptr_t)ARG(0);
+    if (c) g_game_cursor = c;
+    g_eax = (uint32_t)(uintptr_t)SetCursor(c);
+    g_esp += 4 + 1 * 4;
+}
+
+/* The cursor the presenter shows over the picture: NULL while the game draws
+ * its own. */
+HCURSOR host_menu_cursor(void) {
+    uint32_t mouse = MEM32(RA2_MOUSE_VA);
+    if (mouse && MEM8(mouse + 0x10)) return NULL;
+    return g_game_cursor ? g_game_cursor : LoadCursor(NULL, IDC_ARROW);
 }
 
 /* ...and the screen it reports is the mode's, as it would be after a real
@@ -394,6 +518,14 @@ static HRESULT WINAPI hl_Blt(IDirectDrawSurface* dst, LPRECT r, IDirectDrawSurfa
     return g_real_blt(dst, r, src, sr, flags, fx);
 }
 
+/* For the presenter: copy the primary when the game has put a new frame in
+ * it, not every time it could. The menus blit into the primary; a battle
+ * copies into its frame surface (hdvox.c). */
+long host_frame_count(void) {
+    extern volatile LONG ra2_frame_copies;
+    return g_frames + ra2_frame_copies;
+}
+
 static void count_frame(void) {
     LONG n = InterlockedIncrement(&g_frames);
     if (n == 1 || n == 10 || n == 100 || n % 1000 == 0)
@@ -518,11 +650,16 @@ static void record_close(void) {
     LeaveCriticalSection(&g_rec_lock);
 }
 
-/* The game's picture: the primary, converted to 32-bit BGRX into `out`
- * (stride *w), at most maxw x maxh. 0 when there is no primary yet. Shared by
- * the recorder and the presenter (present.c). The copy is made under the lock
- * and converted straight out of the locked surface: 800x600 is 2 ms. */
-int host_frame(uint32_t* out, int maxw, int maxh, int* pw, int* ph) {
+/* The primary's pixels, copied out under its lock. The game waits on that
+ * lock to draw, and converting (or composing HD voxels) inside it took 4.6 ms
+ * a picture at 1352x845 on a Mac: the presenter kept the game at 40 frames a
+ * second. The lock is now held for a memcpy, and the work runs on the copy.
+ * One snapshot at a time (the presenter and the recorder share it). */
+static uint8_t g_snap[4096 * 2160 * 4];
+static CRITICAL_SECTION g_snap_lock;
+
+/* With g_snap_lock held: the primary into g_snap, rows of *pitch bytes. */
+static int snapshot(int* w, int* h, int* bpp, int* pitch) {
     DDSURFACEDESC d;
     EnterCriticalSection(&g_primary_lock);
     if (!g_primary) { LeaveCriticalSection(&g_primary_lock); return 0; }
@@ -532,10 +669,26 @@ int host_frame(uint32_t* out, int maxw, int maxh, int* pw, int* ph) {
         LeaveCriticalSection(&g_primary_lock);
         return 0;
     }
-    int w = (int)d.dwWidth < maxw ? (int)d.dwWidth : maxw, h = (int)d.dwHeight < maxh ? (int)d.dwHeight : maxh;
-    int bpp = (int)d.ddpfPixelFormat.dwRGBBitCount;
+    *w = (int)d.dwWidth, *h = (int)d.dwHeight, *bpp = (int)d.ddpfPixelFormat.dwRGBBitCount;
+    *pitch = *w * (*bpp / 8);
+    int ok = *w <= 4096 && *h <= 2160 && (*bpp == 16 || *bpp == 32);
+    for (int y = 0; ok && y < *h; y++)
+        memcpy(g_snap + (size_t)y * *pitch, (const uint8_t*)d.lpSurface + (size_t)y * d.lPitch, (size_t)*pitch);
+    g_primary->lpVtbl->Unlock(g_primary, NULL);
+    LeaveCriticalSection(&g_primary_lock);
+    return ok;
+}
+
+/* The game's picture: the primary, converted to 32-bit BGRX into `out`
+ * (stride *w), at most maxw x maxh. 0 when there is no primary yet. Shared by
+ * the recorder and the presenter (present.c). */
+int host_frame(uint32_t* out, int maxw, int maxh, int* pw, int* ph) {
+    int sw, sh, bpp, pitch;
+    EnterCriticalSection(&g_snap_lock);
+    if (!snapshot(&sw, &sh, &bpp, &pitch)) { LeaveCriticalSection(&g_snap_lock); return 0; }
+    int w = sw < maxw ? sw : maxw, h = sh < maxh ? sh : maxh;
     for (int y = 0; y < h; y++) {
-        const uint8_t* src = (const uint8_t*)d.lpSurface + y * d.lPitch;
+        const uint8_t* src = g_snap + (size_t)y * pitch;
         uint32_t* row = out + y * w;
         if (bpp == 16) {
             for (int x = 0; x < w; x++) {
@@ -545,8 +698,7 @@ int host_frame(uint32_t* out, int maxw, int maxh, int* pw, int* ph) {
             }
         } else memcpy(row, src, (size_t)w * 4);
     }
-    g_primary->lpVtbl->Unlock(g_primary, NULL);
-    LeaveCriticalSection(&g_primary_lock);
+    LeaveCriticalSection(&g_snap_lock);
     *pw = w;
     *ph = h;
     return 1;
@@ -556,21 +708,13 @@ int host_frame(uint32_t* out, int maxw, int maxh, int* pw, int* ph) {
  * voxels are off, the frame is not 16-bit, or 2x would not fit. *pw, *ph get
  * the game's (1x) size. */
 int host_frame_hd(uint32_t* out, int maxw, int maxh, int* pw, int* ph) {
-    DDSURFACEDESC d;
+    int w, h, bpp, pitch;
     if (!ra2_vox_hd_on) return 0;
-    EnterCriticalSection(&g_primary_lock);
-    if (!g_primary) { LeaveCriticalSection(&g_primary_lock); return 0; }
-    memset(&d, 0, sizeof d);
-    d.dwSize = sizeof d;
-    if (g_primary->lpVtbl->Lock(g_primary, NULL, &d, DDLOCK_WAIT | DDLOCK_READONLY, NULL) != DD_OK) {
-        LeaveCriticalSection(&g_primary_lock);
-        return 0;
-    }
-    int w = (int)d.dwWidth, h = (int)d.dwHeight;
-    int ok = d.ddpfPixelFormat.dwRGBBitCount == 16 && 2 * w <= maxw && 2 * h <= maxh;
-    if (ok) hdvox_compose((const uint8_t*)d.lpSurface, (int)d.lPitch, w, h, out);
-    g_primary->lpVtbl->Unlock(g_primary, NULL);
-    LeaveCriticalSection(&g_primary_lock);
+    EnterCriticalSection(&g_snap_lock);
+    if (!snapshot(&w, &h, &bpp, &pitch)) { LeaveCriticalSection(&g_snap_lock); return 0; }
+    int ok = bpp == 16 && 2 * w <= maxw && 2 * h <= maxh;
+    if (ok) hdvox_compose(g_snap, pitch, w, h, out);
+    LeaveCriticalSection(&g_snap_lock);
     *pw = w;
     *ph = h;
     return ok;
@@ -852,10 +996,15 @@ static native32_shim_t g_headless_shims[] = {
     { "ClientToScreen", shim_ClientToScreen },
     { "ScreenToClient", shim_ScreenToClient },
     { "GetWindowRect", shim_GetWindowRect },
+    { "SendMessageA", shim_SendMessageA },
     { "WindowFromPoint", shim_WindowFromPoint },
     { "MoveWindow", shim_MoveWindow },
     { "SetWindowPos", shim_SetWindowPos },
     { "SetCursorPos", shim_SetCursorPos },
+    { "SetCursor", shim_SetCursor },
+    { "SetForegroundWindow", shim_SetForegroundWindow },
+    { "BringWindowToTop", shim_BringWindowToTop },
+    { "SetActiveWindow", shim_SetActiveWindow },
     { "GetSystemMetrics", shim_GetSystemMetrics },
     { "DirectDrawCreate", shim_DirectDrawCreate },
 };
@@ -1114,6 +1263,7 @@ int main(int argc, char** argv) {
     }
 
     InitializeCriticalSection(&g_primary_lock);
+    InitializeCriticalSection(&g_snap_lock);
     InitializeCriticalSection(&g_rec_lock);
     /* Headless and the presenter share the virtual display. The presenter
      * keeps the game's message boxes real (a player answers them) and its

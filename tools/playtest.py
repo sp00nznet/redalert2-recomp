@@ -35,6 +35,7 @@ import fnmatch
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -49,6 +50,16 @@ GAME_EXE, GAME_INI = ('game.exe', 'RA2.INI') if TARGET == 'game' else ('gamemd.e
 HOST = os.environ.get('RA2_EXE') or os.path.join(ROOT, 'build-game' if TARGET == 'game' else 'build', 'ra2.exe')
 OUT = os.path.join(ROOT, 'work', 'tests-game' if TARGET == 'game' else 'tests')
 DIALOGS = os.path.join(ROOT, 'work', 'game' if TARGET == 'game' else '', 'dialogs.json')
+# Off Windows the host is a cross build (build.sh) that runs under Wine:
+# CrossOver's Steam bottle by default, or RA2_WINE, the launcher command.
+WINE = [] if os.name == 'nt' else shlex.split(os.environ.get('RA2_WINE') or
+    '/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine --bottle Steam')
+
+
+def host_path(p):
+    """A path as the host takes it: Wine's Z: is the Mac's (or Linux's) /."""
+    return p if os.name == 'nt' else 'Z:' + os.path.abspath(p).replace('/', '\\')
+
 
 # The menu screens, by the dialog resource the game builds them from
 # (py -3 tools/dialogs.py --show 0xE2 lists one).
@@ -238,7 +249,10 @@ case('skirmish-build', place(place(
     .move(523, 300, after=31).click(523, 300, after=1))                  # ready: pick it up
     .move(573, 210, after=4).click(573, 210, after=1)                   # the infantry tab (third)
     .move(523, 251, after=2).click(523, 251, after=1),                  # a GI
-    230, ingame=True, alive=True, log={'Adding event PRODUCE': 3, 'Adding event PLACE': 2})
+    230, ingame=True, alive=True, log={'Adding event PRODUCE': 3, 'Adding event PLACE': 2},
+    # The sidebar's coordinates are 640x480's, whatever the player's INI says
+    # (a CnCNet install had 3440x1440, and every click missed the sidebar).
+    ini={'Video': {'ScreenWidth': 640, 'ScreenHeight': 480}})
 
 case('skirmish-loop', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
      .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10)
@@ -324,8 +338,9 @@ def run(name, args, seconds, expect, every, original=False):
     os.makedirs(d, exist_ok=True)
     game = farm(os.path.join(d, 'game'), expect.get('ini'))
     mp4, log = os.path.join(d, 'run.mp4'), os.path.join(d, 'run.log')
-    cmd = [HOST, '--headless', '--run', '--mute', '--debuglog', '--watchdog', str(seconds),
-           '--record', mp4, '--exe', os.path.join(game, GAME_EXE), '--game', game] + args
+    cmd = WINE + [HOST, '--headless', '--run', '--mute', '--debuglog', '--watchdog', str(seconds),
+                  '--record', host_path(mp4), '--exe', host_path(os.path.join(game, GAME_EXE)),
+                  '--game', host_path(game)] + args
     cmd += os.environ.get('RA2_HOST_ARGS', '').replace('{case}', d).split()  # extra host flags; {case} is the case's folder
     if original:
         cmd.append('--original')

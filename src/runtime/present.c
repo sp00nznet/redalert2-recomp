@@ -33,6 +33,10 @@
 
 int host_frame(uint32_t* out, int maxw, int maxh, int* w, int* h);   /* host.c */
 int host_frame_hd(uint32_t* out, int maxw, int maxh, int* w, int* h);   /* host.c: 2x, HD voxels */
+HCURSOR host_menu_cursor(void);   /* host.c: the game's cursor, NULL while it draws its own */
+HWND host_game_focus(void);       /* host.c: under Wine, the window the game gave the focus */
+long host_frame_count(void);      /* host.c: blits into the primary so far */
+int  host_under_wine(void);       /* host.c */
 
 static const char* const k_mode_names[] = { "sharp", "smooth", "crt", "nearest", "integer" };
 #define NMODES 5
@@ -106,6 +110,8 @@ static RECT g_dst;                       /* where it is drawn in the client area
 static int g_fullscreen;
 static RECT g_windowed;                  /* the window's rect before fullscreen */
 static HWND g_capture_target;            /* the game window a held button went to */
+static HWND g_present_hwnd;              /* this window, for present_real_mouse */
+#define WM_REAL_MOUSE (WM_APP + 0x10)    /* + (message - WM_MOUSEFIRST): lParam is a screen point */
 static POINT g_capture_off;              /* game point -> that window's client */
 
 /* ---- Direct3D 11 --------------------------------------------------------- */
@@ -333,7 +339,7 @@ static void forward_mouse(UINT m, WPARAM w, int x, int y) {
         g_capture_target = t;
         g_capture_off.x = gp.x - local.x, g_capture_off.y = gp.y - local.y;
     }
-    PostMessageA(t, m, w, MAKELPARAM(local.x, local.y));
+    input_post_mouse(t, m, w, MAKELPARAM(local.x, local.y));
     if (m == WM_LBUTTONDOWN || m == WM_RBUTTONDOWN) {
         char cls[32] = "";
         GetClassNameA(t, cls, sizeof cls);
@@ -350,7 +356,9 @@ static void forward_mouse(UINT m, WPARAM w, int x, int y) {
 static void forward_key(UINT m, WPARAM w, LPARAM l) {
     GUITHREADINFO gti = { sizeof gti };
     HWND t = g_input_hwnd;
-    if (GetGUIThreadInfo(GetWindowThreadProcessId(g_input_hwnd, NULL), &gti) && gti.hwndFocus)
+    if (host_game_focus())                         /* under Wine, where the game asked for it */
+        t = host_game_focus();
+    else if (GetGUIThreadInfo(GetWindowThreadProcessId(g_input_hwnd, NULL), &gti) && gti.hwndFocus)
         t = gti.hwndFocus;
     if (t) PostMessageA(t, m, w, l);
 }
@@ -385,12 +393,22 @@ static void settings_path(void) {
     strcpy_s(slash ? slash + 1 : g_ini, MAX_PATH - (slash ? (slash + 1 - g_ini) : 0), "ra2.ini");
 }
 
+/* HD vehicles are off by default under Wine (CrossOver on a Mac): there they
+ * cost about a quarter of the frame rate (62.5 frames a second without, 47
+ * with, a skirmish at 1352x845) and drew artifacts (docs/voxels.md). Their
+ * setting there is a key of its own, so a ra2.ini that a run before this
+ * saved with hdvoxels=1 does not turn them back on, and Windows keeps its
+ * default. */
+static const char* hdvox_key(void) {
+    return host_under_wine() ? "hdvoxels_wine" : "hdvoxels";
+}
+
 static void settings_save(HWND hw) {
     char v[64];
     WritePrivateProfileStringA("present", "scale", k_mode_names[g_mode], g_ini);
     WritePrivateProfileStringA("present", "bars", g_bars ? "blur" : "black", g_ini);
     WritePrivateProfileStringA("present", "fullscreen", g_fullscreen ? "1" : "0", g_ini);
-    WritePrivateProfileStringA("present", "hdvoxels", ra2_vox_hd_on ? "1" : "0", g_ini);
+    WritePrivateProfileStringA("present", hdvox_key(), ra2_vox_hd_on ? "1" : "0", g_ini);
     if (hw && !g_fullscreen && !IsIconic(hw)) {
         RECT r;
         GetWindowRect(hw, &r);
@@ -471,6 +489,22 @@ static DWORD WINAPI quit_soon(LPVOID unused) {
     return 0;
 }
 
+/* Who shows the cursor changes when the game captures or releases the mouse
+ * (a battle starts or ends), without the mouse moving: WM_SETCURSOR alone
+ * would leave the menus' arrow over the battlefield, beside the game's own,
+ * until the player moved. */
+static void update_cursor(HWND hw) {
+    static HCURSOR was = (HCURSOR)-1;
+    HCURSOR c = host_menu_cursor();
+    POINT p;
+    if (c == was) return;
+    fprintf(stderr, "[present] cursor: %s\n", c ? "the game's Windows cursor (menus)" : "drawn by the game");
+    was = c;
+    if (GetCursorPos(&p) && WindowFromPoint(p) == hw &&
+        SendMessageA(hw, WM_NCHITTEST, 0, MAKELPARAM(p.x, p.y)) == HTCLIENT)
+        SetCursor(c);
+}
+
 static LRESULT CALLBACK wndproc(HWND hw, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
     case WM_MOUSEMOVE: case WM_LBUTTONDOWN: case WM_LBUTTONUP: case WM_LBUTTONDBLCLK:
@@ -495,8 +529,19 @@ static LRESULT CALLBACK wndproc(HWND hw, UINT m, WPARAM w, LPARAM l) {
     case WM_MOUSEWHEEL:
         forward_key(m, w, l);
         return 0;
+    case WM_REAL_MOUSE + (WM_MOUSEMOVE - WM_MOUSEFIRST): case WM_REAL_MOUSE + (WM_LBUTTONDOWN - WM_MOUSEFIRST):
+    case WM_REAL_MOUSE + (WM_LBUTTONUP - WM_MOUSEFIRST): case WM_REAL_MOUSE + (WM_LBUTTONDBLCLK - WM_MOUSEFIRST):
+    case WM_REAL_MOUSE + (WM_RBUTTONDOWN - WM_MOUSEFIRST): case WM_REAL_MOUSE + (WM_RBUTTONUP - WM_MOUSEFIRST):
+    case WM_REAL_MOUSE + (WM_RBUTTONDBLCLK - WM_MOUSEFIRST): case WM_REAL_MOUSE + (WM_MBUTTONDOWN - WM_MOUSEFIRST):
+    case WM_REAL_MOUSE + (WM_MBUTTONUP - WM_MOUSEFIRST): {
+        POINT p = { GET_X_LPARAM(l), GET_Y_LPARAM(l) };   /* present_real_mouse: a screen point */
+        ScreenToClient(hw, &p);
+        return wndproc(hw, WM_MOUSEFIRST + (m - WM_REAL_MOUSE), w, MAKELPARAM(p.x, p.y));
+    }
     case WM_SETCURSOR:
-        if (LOWORD(l) == HTCLIENT) { SetCursor(NULL); return TRUE; }   /* the game draws its own */
+        /* In a battle the game draws its own; in the menus, the Windows
+         * cursor it set (update_cursor). */
+        if (LOWORD(l) == HTCLIENT) { SetCursor(host_menu_cursor()); return TRUE; }
         break;
     case WM_SYSKEYDOWN:
         if (w == VK_RETURN) { set_fullscreen(hw, !g_fullscreen); settings_save(hw); return 0; }
@@ -525,6 +570,28 @@ static LRESULT CALLBACK wndproc(HWND hw, UINT m, WPARAM w, LPARAM l) {
     }
     return DefWindowProcA(hw, m, w, l);
 }
+
+/* RA2_FRAME_STATS=1: every 2 s, how many pictures the presenter showed, what
+ * the copy out of the primary and the draw (upload, shader, Present) took,
+ * and how many frames the game itself ran, so a slow picture says whether
+ * the game or the presenter is slow. */
+static void frame_stats(LARGE_INTEGER t0, LARGE_INTEGER t1, LARGE_INTEGER t2) {
+    static int on = -1, n;
+    static LARGE_INTEGER hz, start;
+    static long long copy, drawn;
+    static uint32_t game0;
+    if (on < 0) on = getenv("RA2_FRAME_STATS") != NULL, QueryPerformanceFrequency(&hz), start = t0;
+    if (!on) return;
+    uint32_t game = *(volatile uint32_t*)(uintptr_t)RA2_GAME_FRAME_VA;
+    copy += t1.QuadPart - t0.QuadPart, drawn += t2.QuadPart - t1.QuadPart, n++;
+    if (t2.QuadPart - start.QuadPart < 2 * hz.QuadPart) return;
+    double s = (double)(t2.QuadPart - start.QuadPart) / hz.QuadPart;
+    /* the game's count starts again with each game: none counted across that */
+    fprintf(stderr, "[present] %.1f pictures/s (copy %.1f ms, draw %.1f ms), game %.1f frames/s\n", n / s,
+            1000.0 * copy / hz.QuadPart / n, 1000.0 * drawn / hz.QuadPart / n, game >= game0 ? (game - game0) / s : 0.0);
+    game0 = game, start = t2, copy = drawn = 0, n = 0;
+}
+
 
 static DWORD WINAPI present_thread(LPVOID arg) {
     static uint32_t frame[4096 * 2160];
@@ -569,6 +636,7 @@ static DWORD WINAPI present_thread(LPVOID arg) {
     }
     HWND hw = CreateWindowExA(0, "RA2Presenter", RA2_TITLE " (recomp)", WS_OVERLAPPEDWINDOW,
                               wx, wy, ww, wh, NULL, NULL, wc.hInstance, NULL);
+    g_present_hwnd = hw;
     if (!hw || !d3d_init(hw)) {
         fprintf(stderr, "[present] could not start; run with --classic for the original display\n");
         ExitProcess(5);
@@ -586,18 +654,47 @@ static DWORD WINAPI present_thread(LPVOID arg) {
             TranslateMessage(&msg);
             DispatchMessageA(&msg);
         }
+        update_cursor(hw);
+        /* The copy holds the primary's lock (4.6 ms at 1352x845 on a Mac), and
+         * the game waits on that lock to draw: copying as fast as the loop ran
+         * (97 a second, where vsync did not hold it back) kept the game at half
+         * its speed. So a copy is made when the game has blitted a new frame,
+         * and at least every 33 ms besides, for what Bink writes straight into
+         * the primary (movies). */
+        {
+            static long seen = -1;
+            static DWORD last;
+            long n = host_frame_count();
+            DWORD since = GetTickCount() - last;
+            /* a battle copies into its frame surface more than once a frame:
+             * at most one picture per 16 ms, a display's refresh */
+            if ((n == seen && since < 33) || since < 16) { Sleep(1); continue; }
+            seen = n, last = GetTickCount();
+        }
+        LARGE_INTEGER t0, t1, t2;
+        QueryPerformanceCounter(&t0);
         if (host_frame_hd(frame, 4096, 2160, &gw, &gh)) {     /* the picture at 2x */
             InterlockedExchange(&g_gw, gw);
             InterlockedExchange(&g_gh, gh);
+            QueryPerformanceCounter(&t1);
             draw(frame, 2 * gw, 2 * gh);
+            QueryPerformanceCounter(&t2);
+            frame_stats(t0, t1, t2);
         } else if (host_frame(frame, 4096, 2160, &gw, &gh)) {
             InterlockedExchange(&g_gw, gw);
             InterlockedExchange(&g_gh, gh);
+            QueryPerformanceCounter(&t1);
             draw(frame, gw, gh);
+            QueryPerformanceCounter(&t2);
+            frame_stats(t0, t1, t2);
         } else {
             Sleep(16);
         }
     }
+}
+
+void present_real_mouse(UINT m, WPARAM w, POINT screen) {
+    if (g_present_hwnd) PostMessageA(g_present_hwnd, WM_REAL_MOUSE + (m - WM_MOUSEFIRST), w, MAKELPARAM(screen.x, screen.y));
 }
 
 int present_mode_from_name(const char* name) {
@@ -615,7 +712,8 @@ void present_start(int mode, int fullscreen) {
     GetPrivateProfileStringA("present", "bars", "blur", v, sizeof v, g_ini);
     g_bars = _stricmp(v, "black") != 0;
     if (fullscreen < 0) fullscreen = GetPrivateProfileIntA("present", "fullscreen", 0, g_ini);
-    if (!ra2_vox_hd_on) ra2_vox_hd_on = GetPrivateProfileIntA("present", "hdvoxels", 1, g_ini);   /* --hd-voxels forces it */
+    if (!ra2_vox_hd_on)                     /* --hd-voxels forces it */
+        ra2_vox_hd_on = GetPrivateProfileIntA("present", hdvox_key(), !host_under_wine(), g_ini);
     if (mode >= 0) g_mode = mode;
     input_live(1);
     CloseHandle(CreateThread(NULL, 0, present_thread, (LPVOID)(intptr_t)fullscreen, 0, NULL));

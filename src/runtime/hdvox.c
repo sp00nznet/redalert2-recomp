@@ -604,10 +604,16 @@ void ra2_vox_anim_blitted(void) { if (anims_on()) ra2_vox_hd_blitted(); }
 
 /* ---- 4. the frame ------------------------------------------------------------------ */
 
+/* Copies into the frame surface: in a battle the game draws the screen this
+ * way, not by blitting into the primary, so this is how the presenter knows a
+ * new frame is there (host_frame_count). */
+volatile LONG ra2_frame_copies;
+
 /* 0x004373B0 entry: a copy into the frame surface ends the frame. */
 void ra2_vox_frame_blit(uint32_t dest, uint32_t argp) {
     (void)argp;
     static int empty_copies, stats = -1;
+    if (dest == FRAME_SURF) InterlockedIncrement(&ra2_frame_copies);
     if (stats < 0) stats = getenv("RA2_FRAME_STATS") != NULL;
     if (stats && dest == FRAME_SURF) {            /* frame time, HD voxels on or off */
         static long long last, sum;

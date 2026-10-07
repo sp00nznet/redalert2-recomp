@@ -193,6 +193,55 @@ void input_live_cursor(int x, int y) {
     InterlockedExchange(&g_cy, y);
 }
 
+/* Mouse messages posted to game windows, until the game's thread takes them
+ * (host.c's Wine hook asks): everything else it gets is the real mouse. */
+#define NPOSTED 64
+static struct { HWND h; UINT m; LPARAM l; } g_posted[NPOSTED];
+static int g_nposted;
+static CRITICAL_SECTION g_posted_lock;
+static INIT_ONCE g_posted_once = INIT_ONCE_STATIC_INIT;
+
+static BOOL CALLBACK posted_init(PINIT_ONCE o, PVOID p, PVOID* c) {
+    (void)o, (void)p, (void)c;
+    InitializeCriticalSection(&g_posted_lock);
+    return TRUE;
+}
+
+void input_post_mouse(HWND h, UINT m, WPARAM w, LPARAM l) {
+    InitOnceExecuteOnce(&g_posted_once, posted_init, NULL, NULL);
+    EnterCriticalSection(&g_posted_lock);
+    if (g_nposted == NPOSTED) memmove(g_posted, g_posted + 1, sizeof g_posted - sizeof g_posted[0]), g_nposted--;
+    g_posted[g_nposted].h = h, g_posted[g_nposted].m = m, g_posted[g_nposted++].l = l;
+    LeaveCriticalSection(&g_posted_lock);
+    PostMessageA(h, m, w, l);
+}
+
+/* The same question without taking the note: a PeekMessage that leaves the
+ * message in the queue. */
+int input_posted_mouse_peek(HWND h, UINT m, LPARAM l) {
+    int found = 0;
+    InitOnceExecuteOnce(&g_posted_once, posted_init, NULL, NULL);
+    EnterCriticalSection(&g_posted_lock);
+    for (int i = 0; i < g_nposted && !found; i++)
+        found = g_posted[i].h == h && g_posted[i].m == m && g_posted[i].l == l;
+    LeaveCriticalSection(&g_posted_lock);
+    return found;
+}
+
+int input_posted_mouse(HWND h, UINT m, LPARAM l) {
+    int found = 0;
+    InitOnceExecuteOnce(&g_posted_once, posted_init, NULL, NULL);
+    EnterCriticalSection(&g_posted_lock);
+    for (int i = 0; i < g_nposted; i++)
+        if (g_posted[i].h == h && g_posted[i].m == m && g_posted[i].l == l) {
+            memmove(g_posted + i, g_posted + i + 1, (g_nposted - i - 1) * sizeof g_posted[0]);
+            g_nposted--, found = 1;
+            break;
+        }
+    LeaveCriticalSection(&g_posted_lock);
+    return found;
+}
+
 static volatile LONG g_mods, g_lb_reads;
 SHORT input_key_state(int vk, SHORT real) {
     if (!g_nev && g_live) {
@@ -221,10 +270,10 @@ static void lb_seen(void) {
  * missed when several runs at once stretched a frame past it). */
 static void click(HWND h, LPARAM lp) {
     InterlockedOr(&g_mods, 8);
-    PostMessageA(h, WM_LBUTTONDOWN, MK_LBUTTON, lp);
+    input_post_mouse(h, WM_LBUTTONDOWN, MK_LBUTTON, lp);
     Sleep(250);
     lb_seen();
-    PostMessageA(h, WM_LBUTTONUP, 0, lp);
+    input_post_mouse(h, WM_LBUTTONUP, 0, lp);
     InterlockedAnd(&g_mods, ~8);
     lb_seen();
 }
@@ -278,7 +327,7 @@ static const char* press(int dlg, int ctrl, LONG* shift) {
     ScreenToClient(c, &local);
     InterlockedExchange(&g_cx, mid.x);
     InterlockedExchange(&g_cy, mid.y);
-    PostMessageA(c, WM_MOUSEMOVE, 0, MAKELPARAM(local.x, local.y));
+    input_post_mouse(c, WM_MOUSEMOVE, 0, MAKELPARAM(local.x, local.y));
     Sleep(200);
     LONG opens = g_dialogs_opened;
     /* Watch the dialog's thread: when it takes the click's button-up off its
@@ -403,20 +452,20 @@ static DWORD WINAPI script(LPVOID unused) {
             fprintf(stderr, "[input] %.1fs drag %d,%d to %d,%d\n", e->t, e->x, e->y, x2, y2);
             InterlockedExchange(&g_cx, e->x);
             InterlockedExchange(&g_cy, e->y);
-            PostMessageA(h, WM_MOUSEMOVE, 0, MAKELPARAM(e->x, e->y));
+            input_post_mouse(h, WM_MOUSEMOVE, 0, MAKELPARAM(e->x, e->y));
             Sleep(100);
             InterlockedOr(&g_mods, 8);
-            PostMessageA(h, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(e->x, e->y));
+            input_post_mouse(h, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(e->x, e->y));
             lb_seen();
             for (int k = 1; k <= 10; k++) {         /* across, a step a frame or so */
                 int x = e->x + (x2 - e->x) * k / 10, y = e->y + (y2 - e->y) * k / 10;
                 InterlockedExchange(&g_cx, x);
                 InterlockedExchange(&g_cy, y);
-                PostMessageA(h, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(x, y));
+                input_post_mouse(h, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(x, y));
                 Sleep(60);
             }
             lb_seen();
-            PostMessageA(h, WM_LBUTTONUP, 0, MAKELPARAM(x2, y2));
+            input_post_mouse(h, WM_LBUTTONUP, 0, MAKELPARAM(x2, y2));
             InterlockedAnd(&g_mods, ~8);
             lb_seen();
             continue;
@@ -426,7 +475,7 @@ static DWORD WINAPI script(LPVOID unused) {
                 e->mods & 1 ? "Ctrl-" : e->mods & 2 ? "Shift-" : e->mods & 4 ? "Alt-" : "", e->x, e->y);
         InterlockedExchange(&g_cx, e->x);
         InterlockedExchange(&g_cy, e->y);
-        PostMessageA(h, WM_MOUSEMOVE, 0, lp);
+        input_post_mouse(h, WM_MOUSEMOVE, 0, lp);
         if (e->kind == 'c') {
             static const int mvk[] = { VK_CONTROL, VK_SHIFT, VK_MENU };
             for (int m = 0; m < 3; m++)

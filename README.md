@@ -212,6 +212,53 @@ conformance take `RA2_TARGET=game` (docs/testing.md).
 The usual trip-ups: `python` opening the Microsoft Store (that is Windows' alias;
 use `py -3`), and a PATH change that needs a new terminal window.
 
+### macOS, under CrossOver
+
+The same `ra2.exe`, cross-compiled on the Mac with clang-cl and played in a
+CrossOver bottle. No Visual Studio and no copy of the game: `game/` is a link
+to the bottle's install. Install Steam for Windows in a CrossOver bottle and
+Red Alert 2 from your library in it, then:
+
+```
+./setup.sh
+```
+
+It checks for and offers to install Homebrew's `llvm`, `lld`, `cmake`,
+`ninja`, `xwin` and `uv`; asks before xwin downloads the x86 MSVC C runtime and
+Windows SDK from Microsoft (about 1 GB, under Microsoft's licence, into
+`~/.xwin`); puts `pefile` and `capstone` in a `.venv`; clones pcrecomp beside
+this folder as `pcrecomp` (or uses `../tools`, or `PCRECOMP`); finds the game
+in your bottles; and then catalogs, lifts and builds each game as `Setup.cmd`
+does. The catalog is about 15 minutes a game, the lift a minute or two, the
+build 10 to 20. It leaves `Yuri's Revenge (recomp).command` and
+`Red Alert 2 (recomp).command` here to double-click.
+
+By hand, the steps are *Step by step*'s with `.venv/bin/python` for `py -3`
+and `./build.sh` for `build.cmd`; `./play.sh` (Yuri's Revenge) or
+`./play.sh ra2` runs a build in the bottle (`CX_BOTTLE`, default `Steam`),
+with any host flags after it. `tools/playtest.py` and `tools/conformance.py`
+run the host through CrossOver off Windows (`RA2_WINE` for another launcher).
+
+It needs pcrecomp's native32 with Wine support (pcrecomp #55): DEP turned on at start
+(Wine otherwise answers the first fetch from the guest's code by making it
+executable, and runs the shipping machine code) and a fetch fault that Wine
+under Rosetta reports as a read accepted as a callback.
+
+Under CrossOver on an Apple Silicon Mac the playtest suite passes 27 of 30 for
+each game: everything but the three network cases. Those need IPXEmu's
+`wsock32.dll` in the game folder, as the Steam release ships it; an install
+that CnCNet has updated may no longer have it, and then the game cannot create
+its IPX socket (10047). One Red Alert 2 `skirmish-loop` run hung once in
+`Theme::Stop` after the defeat and passed when run again.
+
+HD vehicles are off by default under Wine: there they cost about a quarter of
+the frame rate and a player saw artifacts with them. F10 still turns them on;
+[docs/voxels.md](docs/voxels.md) has what is known and what to look at.
+
+Not yet under Wine: recordings (`--record` starts `ffmpeg` inside the bottle,
+where there is none; the frame checksums the tests count still come out), and
+`--original` is untested.
+
 ## Usage
 
 `build\ra2.exe` is Yuri's Revenge and `build-game\ra2.exe` Red Alert 2; they
@@ -243,7 +290,8 @@ presenter, not with `--classic`.
 
 Environment: `RA2_EXE` (another build to test: the playtest runner and the
 conformance harness use it in place of `build\ra2.exe`), `RA2_HOST_ARGS` (extra host flags for every playtest case),
-`RA2_FRAME_STATS=1` (time between frames), `RA2_HD_VOXEL_ANIMS=1` (HD voxel
+`RA2_FRAME_STATS=1` (time between frames; with the presenter, pictures and
+game frames a second every 2 s), `RA2_HD_VOXEL_ANIMS=1` (HD voxel
 debris, opt-in).
 
 Diagnostics: `--debuglog` (the game's own debug log), `--native-trace`

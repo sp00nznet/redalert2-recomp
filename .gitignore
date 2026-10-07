@@ -1,5 +1,8 @@
 # Build output
 build/
+build-game/
+# xwin's download cache, made wherever it is run (setup.sh)
+.xwin-cache/
 out/
 cmake-build-*/
 *.obj
@@ -14,6 +17,7 @@ cmake-build-*/
 *.user
 
 # Python
+.venv/
 __pycache__/
 *.pyc
 
@@ -21,6 +25,9 @@ __pycache__/
 # Command & Conquer: Red Alert 2 / Yuri's Revenge (c) 2000-2001 Westwood Studios / EA.
 # Bring your own copy; Setup.cmd copies it into game/.
 game/
+# setup.sh links game to the CrossOver bottle's install, and git sees a link
+# as a file, which game/ does not match.
+/game
 original/
 *.exe
 *.EXE
@@ -50,6 +57,8 @@ Desktop.ini
 
 # Made by Setup.cmd
 * (recomp).cmd
+# Made by setup.sh
+* (recomp).command
 build-trace/
 
 # LAN game frames (tools/lan/*.args)

@@ -92,6 +92,24 @@ A `--scale` or `--fullscreen` on the command line wins over the file.
   menu's dialog is not a direct child of the main window, so asking the main
   window's children found nothing. Static controls pass clicks to what is
   under them, as Windows does.
+- **The cursor is the game's, either way.** In a battle the game captures the
+  mouse and draws its cursor into the picture, so the real one is hidden over
+  the window. The menus are Win32 dialogs and use the Windows cursor the game
+  sets (its own arrow, resource 0x68), so while the mouse is not captured the
+  presenter shows that one; before, the menus had no cursor at all. It
+  switches when a battle starts or ends, without waiting for the mouse to move.
+- **Under Wine the game's windows are kept out of the way by hand.** On a Mac
+  (CrossOver) a button the presenter clicked called `SetFocus`, Wine
+  activated its invisible top-level window and the Mac made it the key
+  window: the presenter went inactive, the Mac's own cursor came back, and
+  the button's capture took the real mouse, so the button-up arrived at its
+  real place on the screen and no click ever finished. Under Wine only, a CBT
+  hook on the game's thread refuses that activation (keys go where the game
+  asked for the focus), `SetForegroundWindow`, `SetActiveWindow` and
+  `BringWindowToTop` are answered without the call, and a message hook drops
+  any real mouse message that reaches a game window and hands it to the
+  presenter, which forwards it like the rest. The host notes every mouse
+  message it posts (`input_post_mouse`), which is how the hook tells them apart.
 - **Mouse buttons are what the presenter saw.** The game's controls read
   `VK_LBUTTON` as well as the messages, and a click has to agree whether it
   came from a mouse, a pen or a test driver.

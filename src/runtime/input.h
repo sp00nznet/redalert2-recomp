@@ -24,5 +24,12 @@ void  input_mode_changed(int w, int h);          /* keep the cursor on screen */
  * state from the physical keyboard. */
 void  input_live(int on);
 void  input_live_cursor(int x, int y);
-void  input_live_buttons(int mk);                /* MK_* buttons held */                    /* FALSE: no scripted position yet */
+void  input_live_buttons(int mk);                /* MK_* buttons held */
+
+/* A mouse message the host posts to a game window, noted so that under Wine
+ * the game thread's hook can tell it from the real mouse (host.c), and the
+ * check that takes the note back. */
+void  input_post_mouse(HWND h, UINT m, WPARAM w, LPARAM l);
+int   input_posted_mouse(HWND h, UINT m, LPARAM l);
+int   input_posted_mouse_peek(HWND h, UINT m, LPARAM l);   /* the same, keeping the note */                    /* FALSE: no scripted position yet */
 SHORT input_key_state(int vk, SHORT real);

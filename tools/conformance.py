@@ -22,6 +22,7 @@ import glob
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 
@@ -33,6 +34,15 @@ HOST = os.environ.get('RA2_EXE') or os.path.join(ROOT, 'build-game' if GAME else
 GEN = os.path.join(ROOT, 'src', 'recomp', 'gen_game' if GAME else 'gen')
 STATS = os.path.join(ROOT, 'work', *(['game'] if GAME else []), 'lift_stats.json')
 BASELINE = os.path.join(ROOT, 'conformance-game.json' if GAME else 'conformance.json')
+# Off Windows the host is a cross build (build.sh) that runs under Wine:
+# CrossOver's Steam bottle by default, or RA2_WINE, the launcher command.
+WINE = [] if os.name == 'nt' else shlex.split(os.environ.get('RA2_WINE') or
+    '/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine --bottle Steam')
+
+
+def host_path(p):
+    """A path as the host takes it: Wine's Z: is the Mac's (or Linux's) /."""
+    return p if os.name == 'nt' else 'Z:' + os.path.abspath(p).replace('/', '\\')
 
 # (name, what the host prints when it is reached). Order is boot order.
 MILESTONES = [
@@ -56,8 +66,8 @@ def distinct_frames(out):
 
 def boot(seconds):
     try:
-        p = subprocess.run([HOST, '--headless', '--run', '--mute', '--debuglog', '--watchdog', str(seconds),
-                            '--record', os.path.join(ROOT, 'work', 'conformance.mp4')],
+        p = subprocess.run(WINE + [HOST, '--headless', '--run', '--mute', '--debuglog', '--watchdog', str(seconds),
+                                   '--record', host_path(os.path.join(ROOT, 'work', 'conformance.mp4'))],
                            cwd=ROOT, capture_output=True, text=True, errors='replace',
                            timeout=seconds + 60)
         out, code = p.stdout + p.stderr, p.returncode
