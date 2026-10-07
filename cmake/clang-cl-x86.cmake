@@ -18,9 +18,12 @@ if(NOT EXISTS "${XWIN_DIR}/crt/lib/x86")
   message(FATAL_ERROR "no x86 CRT in ${XWIN_DIR}: run xwin --accept-license --arch x86 splat --output ${XWIN_DIR}")
 endif()
 
-# Homebrew keeps LLVM and lld keg-only, so look there as well as on PATH.
+# Homebrew keeps LLVM and lld keg-only, and Debian and Ubuntu keep clang-cl and
+# llvm-lib in a versioned folder, so look there as well as on PATH.
+file(GLOB _llvm_versioned LIST_DIRECTORIES true /usr/lib/llvm-*/bin)
+list(SORT _llvm_versioned COMPARE NATURAL ORDER DESCENDING)
 set(_llvm_hints /opt/homebrew/opt/llvm/bin /opt/homebrew/opt/lld/bin
-                /usr/local/opt/llvm/bin /usr/local/opt/lld/bin)
+                /usr/local/opt/llvm/bin /usr/local/opt/lld/bin ${_llvm_versioned})
 find_program(CMAKE_C_COMPILER clang-cl HINTS ${_llvm_hints} REQUIRED)
 find_program(CMAKE_LINKER lld-link HINTS ${_llvm_hints} REQUIRED)
 find_program(CMAKE_AR llvm-lib HINTS ${_llvm_hints} REQUIRED)

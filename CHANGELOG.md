@@ -6,6 +6,24 @@ versions follow [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Linux**: the same cross build as the Mac's, played with `wine`. `setup.sh`
+  lists the packages to install, offers xwin's release binary, and finds the
+  game in your Steam libraries; `play.sh` and the playtests run plain `wine`;
+  the toolchain finds clang-cl in Debian's and Ubuntu's `/usr/lib/llvm-*/bin`.
+  Under Wine the game's IPXEmu `wsock32.dll` is loaded
+  (`WINEDLLOVERRIDES=wsock32=n,b`), so the network screens work, and the
+  playtests run those cases one at a time (they share one IPX port). Yuri's
+  Revenge passes 30 of 30 under Wine 10.0 on Debian 13, Red Alert 2 29 of 30
+  (`skirmish-build`, which the AI often wins on Windows too: it is unseeded).
+- **macOS**: cross-compiled with clang-cl and xwin and played under CrossOver
+  (`setup.sh`, `build.sh`, `play.sh`, `cmake/clang-cl-x86.cmake`), with the
+  playtests and conformance run through Wine. 27 of 30 cases for each game
+  on an Apple Silicon Mac. (#1, by [@cpressland](https://github.com/cpressland))
+- `run_lift.py` and the host refuse an exe that is not the Steam build
+  (`gamemd.exe` 0x3BDF544E, `game.exe` 0x3B1EBBED, their PE timestamps):
+  another build lifts, but the patches land in the wrong code and it crashes
+  in game. The host says so in a message box.
+- `CONTRIBUTORS.md`.
 - Setup.cmd builds both games: Yuri's Revenge, then Red Alert 2, each with
   its own shortcut (`Yuri's Revenge (recomp).cmd`, `Red Alert 2
   (recomp).cmd`); `-Games yr` or `-Games ra2` builds one. `Red Alert 2
@@ -108,6 +126,11 @@ a2.ini`.
   script, to tell lift bugs from host bugs.
 
 ### Fixed
+- `skirmish-build` sets 640x480 itself: its sidebar coordinates are
+  640x480's, and a CnCNet install's 3440x1440 INI made every click miss.
+  (#1, by [@cpressland](https://github.com/cpressland))
+- The playtests' per-case game folder falls back to symlinks when hard links
+  fail (`game/` on another drive, as a Steam library often is).
 - `--record` opened at the game's first mode, and a game that starts at 4K
   was encoded at three frames a second; recordings are at most 1280 wide.
 - A press on a button inside a panel of a dialog was always sent a second

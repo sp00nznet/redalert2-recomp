@@ -46,8 +46,11 @@ for comparison.
 - **LAN multiplayer**: RA2 against RA2 between two PCs, as shipped (IPXEmu),
   with a script for each side to play a match start unattended
   (docs/testing.md).
-- **Runs anywhere Windows does**: the C runtime is linked in, so no Visual
-  C++ redistributable to install; `--mute` for silent runs.
+- **Windows, Linux and macOS**: on Windows the C runtime is linked in, so
+  there is no Visual C++ redistributable to install. On Linux and macOS the
+  same exe is cross-built with clang-cl and played under Wine or CrossOver
+  ([macOS and Linux, under Wine](#macos-and-linux-under-wine)). `--mute` for
+  silent runs.
 
 ## Status: **v0.1.0-dev, playable.** The whole game lifts with 0 errors and plays: every main-menu screen, skirmishes from setup to the score screen, and both campaigns, in the presenter or headless, checked by a scripted test suite.
 
@@ -120,7 +123,8 @@ of *Command & Conquer: Red Alert 2 and Yuri's Revenge* (the folder holding
 
 Nothing from the game is in this repository and nothing is
 downloaded for you. The lifted C is generated on your machine from your copy
-and is never distributed.
+and is never distributed. On macOS or Linux, see
+[macOS and Linux, under Wine](#macos-and-linux-under-wine).
 
 ### Quick start
 
@@ -212,52 +216,62 @@ conformance take `RA2_TARGET=game` (docs/testing.md).
 The usual trip-ups: `python` opening the Microsoft Store (that is Windows' alias;
 use `py -3`), and a PATH change that needs a new terminal window.
 
-### macOS, under CrossOver
+### macOS and Linux, under Wine
 
-The same `ra2.exe`, cross-compiled on the Mac with clang-cl and played in a
-CrossOver bottle. No Visual Studio and no copy of the game: `game/` is a link
-to the bottle's install. Install Steam for Windows in a CrossOver bottle and
-Red Alert 2 from your library in it, then:
+The same `ra2.exe`, cross-compiled with clang-cl and played under Wine:
+CrossOver on a Mac, `wine` on Linux. No Visual Studio and no copy of the
+game: `game/` is a link to your install. On a Mac, install Steam for Windows
+in a CrossOver bottle and Red Alert 2 from your library in it; on Linux,
+install it from Steam (which runs it with Proton) or have the folder anywhere.
+Then:
 
 ```
 ./setup.sh
 ```
 
-It checks for and offers to install Homebrew's `llvm`, `lld`, `cmake`,
-`ninja`, `xwin` and `uv`; asks before xwin downloads the x86 MSVC C runtime and
-Windows SDK from Microsoft (about 1 GB, under Microsoft's licence, into
-`~/.xwin`); puts `pefile` and `capstone` in a `.venv`; clones pcrecomp beside
-this folder as `pcrecomp` (or uses `../tools`, or `PCRECOMP`); finds the game
-in your bottles; and then catalogs, lifts and builds each game as `Setup.cmd`
+On a Mac it checks for and offers to install Homebrew's `llvm`, `lld`,
+`cmake`, `ninja`, `xwin` and `uv`. On Linux it lists what your package manager
+should install (clang-cl, lld, llvm, cmake, ninja, wine and Python 3) and
+offers to download `xwin`'s release binary. Either way it asks before xwin
+downloads the x86 MSVC C runtime and Windows SDK from Microsoft (about 1 GB,
+under Microsoft's licence, into `~/.xwin`); finds `pefile` and `capstone` or
+puts them in a `.venv`; clones pcrecomp beside this folder as `pcrecomp` (or
+uses `../tools`, or `PCRECOMP`); finds the game in your CrossOver bottles or
+Steam libraries; and then catalogs, lifts and builds each game as `Setup.cmd`
 does. The catalog is about 15 minutes a game, the lift a minute or two, the
-build 10 to 20. It leaves `Yuri's Revenge (recomp).command` and
-`Red Alert 2 (recomp).command` here to double-click.
+build 10 to 20. It leaves `Yuri's Revenge (recomp)` and `Red Alert 2 (recomp)`
+launchers here (`.command` on a Mac, `.sh` on Linux).
 
-By hand, the steps are *Step by step*'s with `.venv/bin/python` for `py -3`
-and `./build.sh` for `build.cmd`; `./play.sh` (Yuri's Revenge) or
-`./play.sh ra2` runs a build in the bottle (`CX_BOTTLE`, default `Steam`),
-with any host flags after it. `tools/playtest.py` and `tools/conformance.py`
-run the host through CrossOver off Windows (`RA2_WINE` for another launcher).
+By hand, the steps are *Step by step*'s with `python3` (or `.venv/bin/python`)
+for `py -3` and `./build.sh` for `build.cmd`; `./play.sh` (Yuri's Revenge) or
+`./play.sh ra2` runs a build under Wine, with any host flags after it (on a
+Mac, `CX_BOTTLE` picks the bottle, default `Steam`). `tools/playtest.py` and
+`tools/conformance.py` run the host through Wine off Windows (`RA2_WINE` for
+another launcher).
 
-It needs pcrecomp's native32 with Wine support (pcrecomp #55): DEP turned on at start
-(Wine otherwise answers the first fetch from the guest's code by making it
-executable, and runs the shipping machine code) and a fetch fault that Wine
-under Rosetta reports as a read accepted as a callback.
+It needs pcrecomp's native32 with Wine support (pcrecomp #55): DEP turned on
+at start (Wine otherwise answers the first fetch from the guest's code by
+making it executable, and runs the shipping machine code) and a fetch fault
+that Wine under Rosetta reports as a read accepted as a callback. The network
+games need the IPXEmu `wsock32.dll` the Steam release has in the game folder,
+and `play.sh` and the playtests tell Wine to load it
+(`WINEDLLOVERRIDES=wsock32=n,b`); an install that CnCNet has updated may no
+longer have it, and then the game cannot create its IPX socket (10047).
 
-Under CrossOver on an Apple Silicon Mac the playtest suite passes 27 of 30 for
-each game: everything but the three network cases. Those need IPXEmu's
-`wsock32.dll` in the game folder, as the Steam release ships it; an install
-that CnCNet has updated may no longer have it, and then the game cannot create
-its IPX socket (10047). One Red Alert 2 `skirmish-loop` run hung once in
-`Theme::Stop` after the defeat and passed when run again.
+| Where | Yuri's Revenge | Red Alert 2 |
+|---|---|---|
+| Linux, Wine 10.0 (Debian 13, x86-64) | 30 of 30 | 29 of 30 |
+| macOS, CrossOver (Apple Silicon) | 27 of 30 | 27 of 30 |
 
-HD vehicles are off by default under Wine: there they cost about a quarter of
-the frame rate and a player saw artifacts with them. F10 still turns them on;
-[docs/voxels.md](docs/voxels.md) has what is known and what to look at.
+The Mac runs predate the IPXEmu override, and the three cases they missed
+were the network ones. Red Alert 2's `skirmish-build` is the one miss on Linux: its
+skirmish has no fixed seed, and the AI often wins it in the 230 seconds, on
+Windows as well (a flaky case, not a Wine one). One Red Alert 2 `skirmish-loop` run on the Mac hung
+once in `Theme::Stop` after the defeat and passed when run again.
 
-Not yet under Wine: recordings (`--record` starts `ffmpeg` inside the bottle,
-where there is none; the frame checksums the tests count still come out), and
-`--original` is untested.
+Not yet under Wine: recordings (`--record` starts `ffmpeg` through Wine's
+`cmd`, which cannot run a Mac or Linux program; the frame checksums the tests
+count still come out), and `--original` is untested.
 
 ## Usage
 
@@ -290,8 +304,7 @@ presenter, not with `--classic`.
 
 Environment: `RA2_EXE` (another build to test: the playtest runner and the
 conformance harness use it in place of `build\ra2.exe`), `RA2_HOST_ARGS` (extra host flags for every playtest case),
-`RA2_FRAME_STATS=1` (time between frames; with the presenter, pictures and
-game frames a second every 2 s), `RA2_HD_VOXEL_ANIMS=1` (HD voxel
+`RA2_FRAME_STATS=1` (time between frames), `RA2_HD_VOXEL_ANIMS=1` (HD voxel
 debris, opt-in).
 
 Diagnostics: `--debuglog` (the game's own debug log), `--native-trace`
@@ -322,6 +335,11 @@ Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
 - [docs/bringup.md](docs/bringup.md): every wall so far and its fix
 - [docs/testing.md](docs/testing.md): the playtest suite, scripted input, the `--original` oracle and the LAN game
 - [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
+
+## Contributors
+
+See **[CONTRIBUTORS.md](CONTRIBUTORS.md)** for who did what. Thank you, all of
+you.
 
 ## License
 

@@ -57,8 +57,9 @@ Desktop.ini
 
 # Made by Setup.cmd
 * (recomp).cmd
-# Made by setup.sh
+# Made by setup.sh (macOS, Linux)
 * (recomp).command
+* (recomp).sh
 build-trace/
 
 # LAN game frames (tools/lan/*.args)

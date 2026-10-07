@@ -31,6 +31,7 @@ fails on the lift and passes there, the lift is wrong; where both fail, the
 host is.
 """
 import argparse
+import contextlib
 import fnmatch
 import json
 import os
@@ -39,6 +40,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -51,9 +53,18 @@ HOST = os.environ.get('RA2_EXE') or os.path.join(ROOT, 'build-game' if TARGET ==
 OUT = os.path.join(ROOT, 'work', 'tests-game' if TARGET == 'game' else 'tests')
 DIALOGS = os.path.join(ROOT, 'work', 'game' if TARGET == 'game' else '', 'dialogs.json')
 # Off Windows the host is a cross build (build.sh) that runs under Wine:
-# CrossOver's Steam bottle by default, or RA2_WINE, the launcher command.
-WINE = [] if os.name == 'nt' else shlex.split(os.environ.get('RA2_WINE') or
-    '/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine --bottle Steam')
+# CrossOver's Steam bottle on a Mac, wine on Linux, or RA2_WINE, the launcher
+# command.
+WINE = [] if os.name == 'nt' else shlex.split(os.environ.get('RA2_WINE') or (
+    '/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine --bottle Steam'
+    if sys.platform == 'darwin' else 'wine'))
+# The game folder's wsock32.dll is IPXEmu, the network games' IPX; Wine would
+# load its own, which has none (error 10047 creating the IPX socket).
+if WINE:
+    os.environ.setdefault('WINEDLLOVERRIDES', 'wsock32=n,b')
+# Under Wine two network screens at once share one IPX port (error 10048),
+# so those cases take turns.
+IPX = threading.Lock()
 
 
 def host_path(p):
@@ -327,7 +338,10 @@ def farm(d, ini=None):
                         text = set_ini(text, sec, k, v)
                 open(t, 'wb').write(text)
             elif not os.path.exists(t):
-                os.link(os.path.join(dirpath, f), t)
+                try:
+                    os.link(os.path.join(dirpath, f), t)
+                except OSError:                      # game/ on another drive (a Steam library): a symlink
+                    os.symlink(os.path.join(dirpath, f), t)
     return d
 
 
@@ -344,7 +358,8 @@ def run(name, args, seconds, expect, every, original=False):
     cmd += os.environ.get('RA2_HOST_ARGS', '').replace('{case}', d).split()  # extra host flags; {case} is the case's folder
     if original:
         cmd.append('--original')
-    with open(log, 'w', errors='replace') as f:
+    lan = WINE and ('network' in name or 'lan' in name)
+    with open(log, 'w', errors='replace') as f, (IPX if lan else contextlib.nullcontext()):
         try:
             code = subprocess.run(cmd, cwd=ROOT, stdout=f, stderr=subprocess.STDOUT,
                                   timeout=seconds + 300).returncode

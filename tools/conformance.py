@@ -35,9 +35,15 @@ GEN = os.path.join(ROOT, 'src', 'recomp', 'gen_game' if GAME else 'gen')
 STATS = os.path.join(ROOT, 'work', *(['game'] if GAME else []), 'lift_stats.json')
 BASELINE = os.path.join(ROOT, 'conformance-game.json' if GAME else 'conformance.json')
 # Off Windows the host is a cross build (build.sh) that runs under Wine:
-# CrossOver's Steam bottle by default, or RA2_WINE, the launcher command.
-WINE = [] if os.name == 'nt' else shlex.split(os.environ.get('RA2_WINE') or
-    '/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine --bottle Steam')
+# CrossOver's Steam bottle on a Mac, wine on Linux, or RA2_WINE, the launcher
+# command.
+WINE = [] if os.name == 'nt' else shlex.split(os.environ.get('RA2_WINE') or (
+    '/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine --bottle Steam'
+    if sys.platform == 'darwin' else 'wine'))
+# The game folder's wsock32.dll is IPXEmu, the network games' IPX; Wine would
+# load its own, which has none (error 10047 creating the IPX socket).
+if WINE:
+    os.environ.setdefault('WINEDLLOVERRIDES', 'wsock32=n,b')
 
 
 def host_path(p):
