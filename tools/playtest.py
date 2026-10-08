@@ -49,13 +49,17 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # is Yuri's Revenge (gamemd.exe, build\).
 TARGET = os.environ.get('RA2_TARGET', 'gamemd')
 GAME_EXE, GAME_INI = ('game.exe', 'RA2.INI') if TARGET == 'game' else ('gamemd.exe', 'RA2MD.INI')
-HOST = os.environ.get('RA2_EXE') or os.path.join(ROOT, 'build-game' if TARGET == 'game' else 'build', 'ra2.exe')
+# On Linux the native host (build-linux.sh) is the default once it is built.
+NATIVE_HOST = os.path.join(ROOT, 'build-linux-game' if TARGET == 'game' else 'build-linux', 'ra2')
+HOST = os.environ.get('RA2_EXE') or (NATIVE_HOST if os.name != 'nt' and os.path.exists(NATIVE_HOST)
+                                     else os.path.join(ROOT, 'build-game' if TARGET == 'game' else 'build', 'ra2.exe'))
+NATIVE = os.name != 'nt' and not HOST.lower().endswith('.exe')
 OUT = os.path.join(ROOT, 'work', 'tests-game' if TARGET == 'game' else 'tests')
 DIALOGS = os.path.join(ROOT, 'work', 'game' if TARGET == 'game' else '', 'dialogs.json')
-# Off Windows the host is a cross build (build.sh) that runs under Wine:
+# Off Windows the .exe is a cross build (build.sh) that runs under Wine:
 # CrossOver's Steam bottle on a Mac, wine on Linux, or RA2_WINE, the launcher
-# command.
-WINE = [] if os.name == 'nt' else shlex.split(os.environ.get('RA2_WINE') or (
+# command. The native host runs as it is.
+WINE = [] if os.name == 'nt' or NATIVE else shlex.split(os.environ.get('RA2_WINE') or (
     '/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine --bottle Steam'
     if sys.platform == 'darwin' else 'wine'))
 # The game folder's wsock32.dll is IPXEmu, the network games' IPX; Wine would
@@ -69,7 +73,7 @@ IPX = threading.Lock()
 
 def host_path(p):
     """A path as the host takes it: Wine's Z: is the Mac's (or Linux's) /."""
-    return p if os.name == 'nt' else 'Z:' + os.path.abspath(p).replace('/', '\\')
+    return p if os.name == 'nt' or NATIVE else 'Z:' + os.path.abspath(p).replace('/', '\\')
 
 
 # The menu screens, by the dialog resource the game builds them from
@@ -381,7 +385,7 @@ def run(name, args, seconds, expect, every, original=False):
             opened.append(m.group(1))
     distinct = len(set(re.findall(r'\[record\] frame \d+ (?:at \S+ )?checksum ([0-9A-F]{8})', text)))
     ingame = '[game] Capture_Mouse()' in text
-    modes = re.findall(r'\[headless\] SetDisplayMode\((\d+)x(\d+)x\d+\)', text)
+    modes = re.findall(r'\[(?:headless|ddraw)\] SetDisplayMode\((\d+)x(\d+)x\d+\)', text)
     defeated = re.search(r'\[game\] MPlayer_Defeated\(\) - Player <human player> has been defeated', text)
     seen = ['dialogs ' + ' '.join(opened)] if opened else []
     if ingame:

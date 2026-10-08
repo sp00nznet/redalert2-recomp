@@ -6,6 +6,20 @@ versions follow [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Linux, natively** (no Wine): `build-linux/ra2` (Yuri's Revenge) and
+  `build-linux-game/ra2` (Red Alert 2), the same lifted C on pcrecomp's
+  `runtime/win32hle` (pcrecomp #62): its own kernel32, a window manager with
+  the dialogs the menus use, DirectDraw and DirectSound on SDL2, the Bink
+  movies on ffmpeg, Winsock with IPXEmu's IPX over UDP, COM, and compound
+  files for saves. `src/linux`: the host (`main.c`), Blowfish.dll's cipher
+  for the MIX headers (`blowfish.c`, its tables read from the game's DLL) and
+  the Windows host's scripted input (`script.c`); `src/runtime/hdvox.c`
+  builds for it. `build-linux.sh` and `cmake/linux-i386.cmake` (gcc -m32,
+  SDL2, SDL2_ttf, ffmpeg); `setup.sh` builds natively on Linux (`--wine` for
+  the Windows exes) and lists the packages; `tools/playtest.py` runs the
+  native build when it is there. On Debian 13 in
+  Docker the playtest suite passes 30 of 30 for Yuri's Revenge and 30 of 30
+  for Red Alert 2.
 - **Linux**: the same cross build as the Mac's, played with `wine`. `setup.sh`
   lists the packages to install, offers xwin's release binary, and finds the
   game in your Steam libraries; `play.sh` and the playtests run plain `wine`;

@@ -47,10 +47,13 @@ for comparison.
   with a script for each side to play a match start unattended
   (docs/testing.md).
 - **Windows, Linux and macOS**: on Windows the C runtime is linked in, so
-  there is no Visual C++ redistributable to install. On Linux and macOS the
-  same exe is cross-built with clang-cl and played under Wine or CrossOver
-  ([macOS and Linux, under Wine](#macos-and-linux-under-wine)). `--mute` for
-  silent runs.
+  there is no Visual C++ redistributable to install. On Linux the game also
+  runs **natively, with no Wine**: the same lifted C on pcrecomp's own
+  implementation of the Windows API, with SDL2 for the window and sound and
+  ffmpeg for the Bink movies ([Linux, native](#linux-native)). On macOS (and
+  Linux) the exe is cross-built with clang-cl and played under CrossOver or
+  Wine ([macOS and Linux, under Wine](#macos-and-linux-under-wine)). `--mute`
+  for silent runs.
 
 ## Status: **v0.1.0-dev, playable.** The whole game lifts with 0 errors and plays: every main-menu screen, skirmishes from setup to the score screen, and both campaigns, in the presenter or headless, checked by a scripted test suite.
 
@@ -67,6 +70,7 @@ for comparison.
 | High resolution / widescreen | 720p, 1080p, 1440p and 4K in game, skirmish and campaign, picked from the presenter's settings menu (F10) or `RA2MD.INI`; 4K needed a fix to RA2's own sidebar ([hires.md](docs/hires.md)) |
 | Headless mode | `--headless --record out.mp4 --frames N`: hidden window, no mode change, the primary surface recorded to ffmpeg ([host.md](docs/host.md)) |
 | Multiplayer | RA2 against RA2 over the LAN between two PCs, scripted on both sides into the game ([testing.md](docs/testing.md)) |
+| Native Linux (`build-linux/ra2`, pcrecomp `win32hle`) | both games as Linux programs, no Wine: the Bink movies, every menu, skirmishes, both campaigns, saves, HD vehicles; the playtest suite in Docker ([Linux, native](#linux-native)) |
 | Red Alert 2 (`game.exe`) | a second target from the same install: 23,201 functions, 0 lift errors, the suite at 30 of 30, 720p to 4K, HD vehicles ([bringup.md](docs/bringup.md), section 13) |
 | Compilers | MSVC (x86); clang-cl (x86) with pcrecomp #47 |
 | Conformance harness | `tools/conformance.py`: **8/8** boot milestones up to the main menu, lift 0 errors, against `conformance.json`; fails on regression |
@@ -123,8 +127,8 @@ of *Command & Conquer: Red Alert 2 and Yuri's Revenge* (the folder holding
 
 Nothing from the game is in this repository and nothing is
 downloaded for you. The lifted C is generated on your machine from your copy
-and is never distributed. On macOS or Linux, see
-[macOS and Linux, under Wine](#macos-and-linux-under-wine).
+and is never distributed. On Linux, see [Linux, native](#linux-native); on
+macOS, [macOS and Linux, under Wine](#macos-and-linux-under-wine).
 
 ### Quick start
 
@@ -215,6 +219,47 @@ conformance take `RA2_TARGET=game` (docs/testing.md).
 
 The usual trip-ups: `python` opening the Microsoft Store (that is Windows' alias;
 use `py -3`), and a PATH change that needs a new terminal window.
+
+### Linux, native
+
+`build-linux/ra2` (Yuri's Revenge) and `build-linux-game/ra2` (Red Alert 2)
+are 32-bit Linux programs: the same lifted C as the Windows build, on
+pcrecomp's `runtime/win32hle`, which answers every Windows call the game
+makes itself (files, windows and dialogs, DirectDraw and DirectSound on SDL2,
+the Bink movies on ffmpeg, Winsock, the registry, COM and save-game storage).
+No Wine and no Windows DLLs; the game folder is only data.
+
+On Debian or Ubuntu (`setup.sh` names the Fedora and Arch packages):
+
+```
+sudo dpkg --add-architecture i386 && sudo apt update
+sudo apt install gcc-multilib cmake ninja-build pkg-config python3-pefile python3-capstone fonts-liberation \
+                 libsdl2-dev:i386 libsdl2-ttf-dev:i386 libavformat-dev:i386 libavcodec-dev:i386 libswresample-dev:i386
+./setup.sh
+```
+
+`setup.sh` links `game/` to your install (it looks in your Steam libraries),
+catalogs, lifts and builds both games, and leaves `Yuri's Revenge (recomp).sh`
+and `Red Alert 2 (recomp).sh` (`./setup.sh --wine` builds the Windows exes
+for Wine instead). By hand, it is *Step by step* with `python3` for `py -3`
+and `./build-linux.sh` for `build.cmd` (`BUILD_DIR=build-linux-game
+CMAKE_ARGS=-DRA2_TARGET=game` for Red Alert 2), then `build-linux/ra2 --run`.
+It needs pcrecomp with win32hle's DirectDraw and Bink (pcrecomp #62).
+
+The window scales like the Windows presenter: F12 cycles sharp, smooth, CRT,
+nearest and integer scaling, F11 (or Alt+Enter) is fullscreen, and `ra2.ini`
+beside the program remembers them (`--scale` on the command line).
+`--headless`, `--record`, `--mute`, `--hd-voxels`, `--seed` and the scripted
+input are the Windows host's; `tools/playtest.py` runs the native build when
+it is there. LAN games speak IPXEmu's protocol (IPX over UDP), the one the
+Windows build uses through the game folder's `wsock32.dll`.
+
+On Debian 13, headless in Docker, the playtest suite passes 30 of 30 for
+each game, Yuri's Revenge and Red Alert 2: every menu, skirmishes to 4K,
+both campaigns, the loop to the score screen. Yuri's Revenge also plays its
+movies and menus in a window on an Xfce desktop. Not on this host:
+`--original` (it runs the shipping machine code on Windows), the F10
+settings menu, and a LAN game against a Windows player (untried).
 
 ### macOS and Linux, under Wine
 

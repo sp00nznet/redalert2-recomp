@@ -1,6 +1,9 @@
 # Build output
 build/
 build-game/
+# Native Linux builds (build-linux.sh)
+build-linux/
+build-linux-game/
 # xwin's download cache, made wherever it is run (setup.sh)
 .xwin-cache/
 out/

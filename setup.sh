@@ -1,12 +1,14 @@
 #!/bin/bash
-# macOS and Linux setup: the same pipeline as Setup.cmd, cross-compiled here and
-# played under Wine (CrossOver on a Mac, wine on Linux). On a Mac Red Alert 2
-# has to be installed in a CrossOver bottle (Steam for Windows in a bottle,
-# then the game from your library); on Linux, from Steam (it runs it with
-# Proton) or anywhere else.
+# macOS and Linux setup: the same pipeline as Setup.cmd. On Linux each game is
+# built as a native program (build-linux.sh: no Wine); on a Mac, or on Linux
+# with --wine, the Windows exe is cross-compiled here and played under Wine
+# (CrossOver on a Mac). On a Mac Red Alert 2 has to be installed in a
+# CrossOver bottle (Steam for Windows in a bottle, then the game from your
+# library); on Linux, from Steam (it runs it with Proton) or anywhere else.
 #
 #   ./setup.sh                 # both games
 #   ./setup.sh yr              # only Yuri's Revenge (or: ra2)
+#   ./setup.sh --wine          # on Linux: the Windows exes, under Wine
 #   ./setup.sh --force         # redo every step
 #
 # It links game/ to the install (nothing is copied), builds the function
@@ -16,15 +18,17 @@ set -e
 cd "$(dirname "$0")"
 ROOT=$PWD
 FORCE=0
+NATIVE=1
 GAMES="yr ra2"
 for a in "$@"; do
   case "$a" in
     --force) FORCE=1 ;;
+    --wine) NATIVE=0 ;;
     yr|ra2) GAMES=$a ;;
-    *) echo "usage: ./setup.sh [yr|ra2] [--force]" >&2; exit 2 ;;
+    *) echo "usage: ./setup.sh [yr|ra2] [--force] [--wine]" >&2; exit 2 ;;
   esac
 done
-MAC=0; [ "$(uname)" = Darwin ] && MAC=1
+MAC=0; [ "$(uname)" = Darwin ] && MAC=1 && NATIVE=0
 
 say()  { printf '%s\n' "$*"; }
 step() { printf '\n\033[36m%s\033[0m\n' "$*"; }
@@ -43,6 +47,26 @@ if [ "$MAC" = 1 ]; then
   if [ ${#need[@]} -gt 0 ]; then
     ask "  Install ${need[*]} with Homebrew?" || fail "${need[*]} are required."
     brew install "${need[@]}"
+  fi
+elif [ "$NATIVE" = 1 ]; then
+  # gcc that builds 32-bit; SDL2, SDL2_ttf and ffmpeg (the Bink movies) for i386
+  need=()
+  for t in gcc cmake ninja python3 pkg-config; do have "$t" || need+=("$t"); done
+  printf 'int main(void){return 0;}' > /tmp/m32.c
+  gcc -m32 /tmp/m32.c -o /tmp/m32 2>/dev/null || need+=("gcc -m32")
+  PKG_CONFIG_PATH=/usr/lib/i386-linux-gnu/pkgconfig:/usr/lib32/pkgconfig:/usr/lib/pkgconfig \
+    pkg-config --exists sdl2 SDL2_ttf libavformat libavcodec libswresample 2>/dev/null ||
+    need+=("SDL2, SDL2_ttf and ffmpeg's libraries for i386")
+  if [ ${#need[@]} -gt 0 ]; then
+    say "  Missing: ${need[*]}. From your package manager, for example:"
+    say "    Debian, Ubuntu: sudo dpkg --add-architecture i386 && sudo apt update"
+    say "                    sudo apt install gcc-multilib cmake ninja-build pkg-config python3-venv fonts-liberation \\"
+    say "                                     libsdl2-dev:i386 libsdl2-ttf-dev:i386 libavformat-dev:i386 libavcodec-dev:i386 libswresample-dev:i386"
+    say "    Fedora:         sudo dnf install gcc glibc-devel.i686 cmake ninja-build pkgconf python3 liberation-sans-fonts \\"
+    say "                                     SDL2-devel.i686 SDL2_ttf-devel.i686 ffmpeg-free-devel.i686"
+    say "    Arch:           sudo pacman -S gcc cmake ninja python lib32-sdl2 lib32-sdl2_ttf lib32-ffmpeg ttf-liberation (multilib)"
+    say "  Or ./setup.sh --wine to play the Windows builds under Wine instead."
+    fail "install them, then run ./setup.sh again."
   fi
 else
   need=()
@@ -67,7 +91,7 @@ else
 fi
 
 XWIN_DIR=${XWIN_DIR:-$HOME/.xwin}
-if [ ! -d "$XWIN_DIR/crt/lib/x86" ]; then
+if [ "$NATIVE" = 0 ] && [ ! -d "$XWIN_DIR/crt/lib/x86" ]; then
   say "  The x86 MSVC C runtime and Windows SDK are needed to build a Windows exe (about 1 GB)."
   say "  xwin downloads them from Microsoft, under Microsoft's licence:"
   say "  https://go.microsoft.com/fwlink/?LinkId=2086102"
@@ -102,9 +126,15 @@ if [ ! -d "$PCRECOMP/runtime/native32" ]; then
   git clone https://github.com/sp00nznet/pcrecomp "$PCRECOMP"
 fi
 # Under Wine, callbacks into lifted code need DEP turned on and a fetch that
-# Wine reports as a read accepted (runtime/native32/native32.c).
-grep -q SetProcessDEPPolicy "$PCRECOMP/runtime/native32/native32.c" ||
-  fail "$PCRECOMP predates native32's Wine support (pcrecomp #55): update it."
+# Wine reports as a read accepted (runtime/native32/native32.c). The native
+# host is the lifted game on win32hle's DirectDraw, DirectSound, Bink and windows.
+if [ "$NATIVE" = 1 ]; then
+  [ -f "$PCRECOMP/runtime/win32hle/bink.c" ] ||
+    fail "$PCRECOMP predates win32hle's DirectDraw and Bink (pcrecomp #62): update it."
+else
+  grep -q SetProcessDEPPolicy "$PCRECOMP/runtime/native32/native32.c" ||
+    fail "$PCRECOMP predates native32's Wine support (pcrecomp #55): update it."
+fi
 export PCRECOMP
 say "  pcrecomp: $PCRECOMP"
 
@@ -176,13 +206,30 @@ for g in $GAMES; do
     "$PY" run_lift.py --all --target "$target" > "$work/lift.log" 2>&1 || fail "see $work/lift.log"
     grep "lifted" "$work/lift.log" | tail -1
   fi
-  step "$name: building $build/ra2.exe (10 to 20 minutes)"
-  if done_already "$build/ra2.exe"; then say "  done (skipping)"; else
-    [ "$FORCE" = 1 ] && rm -rf "$build"
-    BUILD_DIR=$build CMAKE_ARGS=-DRA2_TARGET=$target ./build.sh > "$work/build.log" 2>&1 ||
-      fail "the build failed: see $work/build.log"
+  if [ "$NATIVE" = 1 ]; then
+    lbuild=${build/build/build-linux}
+    step "$name: building $lbuild/ra2 (10 to 30 minutes)"
+    if done_already "$lbuild/ra2"; then say "  done (skipping)"; else
+      [ "$FORCE" = 1 ] && rm -rf "$lbuild"
+      BUILD_DIR=$lbuild CMAKE_ARGS=-DRA2_TARGET=$target ./build-linux.sh > "$work/build-linux.log" 2>&1 ||
+        fail "the build failed: see $work/build-linux.log"
+    fi
+  else
+    step "$name: building $build/ra2.exe (10 to 20 minutes)"
+    if done_already "$build/ra2.exe"; then say "  done (skipping)"; else
+      [ "$FORCE" = 1 ] && rm -rf "$build"
+      BUILD_DIR=$build CMAKE_ARGS=-DRA2_TARGET=$target ./build.sh > "$work/build.log" 2>&1 ||
+        fail "the build failed: see $work/build.log"
+    fi
   fi
-  if [ "$MAC" = 1 ]; then
+  if [ "$NATIVE" = 1 ]; then
+    launcher="$name (recomp).sh"
+    cat > "$launcher" <<EOF
+#!/bin/sh
+# Plays the recompiled game, natively: scaling F12, fullscreen F11.
+cd "\$(dirname "\$0")" && exec $lbuild/ra2 --run "\$@"
+EOF
+  elif [ "$MAC" = 1 ]; then
     launcher="$name (recomp).command"
     cat > "$launcher" <<EOF
 #!/bin/sh
@@ -201,4 +248,5 @@ EOF
   say "  $launcher"
 done
 
-printf '\n\033[32mDone.\033[0m Run a "(recomp)" launcher here to play; F10 opens the settings.\n'
+printf '\n\033[32mDone.\033[0m Run a "(recomp)" launcher here to play; %s.\n' \
+  "$([ "$NATIVE" = 1 ] && echo "F12 changes the scaling, F11 is fullscreen" || echo "F10 opens the settings")"
