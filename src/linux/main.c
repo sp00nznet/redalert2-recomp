@@ -256,6 +256,20 @@ static void *recorder(void *unused) {
     }
 }
 
+/* The cursor, as on Windows (src/runtime/host.c, host_menu_cursor): the menus
+ * are Win32 dialogs and use the Windows cursor the game sets; in a battle the
+ * mouse is captured (WWMouseClass's +0x10 byte) and the game draws its own. */
+#ifdef RA2_TARGET_GAME
+#define RA2_MOUSE_VA 0x00B2AF5Cu   /* the mouse object (WWMouseClass), set by its constructor */
+#else
+#define RA2_MOUSE_VA 0x00B78164u
+#endif
+static int menus_use_windows_cursor(void) {
+    uint32_t mouse = MEM32(RA2_MOUSE_VA);
+    int game_draws_cursor = mouse && MEM8(mouse + 0x10);
+    return !game_draws_cursor;
+}
+
 /* Without a recording, the same checksum lines at the same rate, from the
  * pump; and --dump-frames writes those frames as BMPs. */
 static void frame_pump(void) {
@@ -445,6 +459,7 @@ int main(int argc, char **argv) {
         if (!hle_screen_scale(scale)) fprintf(stderr, "[host] no scaling \"%s\": sharp, smooth, crt, nearest or integer\n", scale);
         hle_screen_bars(bars);
         hle_screen_settings_hook = settings_save;
+        hle_screen_cursor_hook = menus_use_windows_cursor;
         if (hle_screen_open(RA2_TITLE, full, g_headless) != 0) return 1;
     }
     hle_set_pump_hook(frame_pump);
