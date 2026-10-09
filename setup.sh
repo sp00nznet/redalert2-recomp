@@ -54,7 +54,7 @@ elif [ "$NATIVE" = 1 ]; then
   for t in gcc cmake ninja python3 pkg-config; do have "$t" || need+=("$t"); done
   printf 'int main(void){return 0;}' > /tmp/m32.c
   gcc -m32 /tmp/m32.c -o /tmp/m32 2>/dev/null || need+=("gcc -m32")
-  PKG_CONFIG_PATH=/usr/lib/i386-linux-gnu/pkgconfig:/usr/lib32/pkgconfig:/usr/lib/pkgconfig \
+  PKG_CONFIG_LIBDIR=/usr/lib/i386-linux-gnu/pkgconfig:/usr/lib32/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig \
     pkg-config --exists sdl2 SDL2_ttf libavformat libavcodec libswresample 2>/dev/null ||
     need+=("SDL2, SDL2_ttf and ffmpeg's libraries for i386")
   if [ ${#need[@]} -gt 0 ]; then

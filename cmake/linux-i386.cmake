@@ -4,7 +4,7 @@
 #
 #   cmake -S . -B build-linux -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/linux-i386.cmake
 #
-# Debian/Ubuntu: dpkg --add-architecture i386; apt install gcc-multilib libsdl2-dev:i386
+# The packages for Debian, Ubuntu, Fedora and Arch: setup.sh lists them.
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR i686)
 set(CMAKE_C_FLAGS_INIT "-m32")
@@ -12,4 +12,6 @@ set(CMAKE_C_FLAGS_INIT "-m32")
 # host sits at 0x08048000, clear of the guest image.
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-m32 -no-pie")
 set(CMAKE_POSITION_INDEPENDENT_CODE OFF)
-set(ENV{PKG_CONFIG_LIBDIR} "/usr/lib/i386-linux-gnu/pkgconfig:/usr/lib32/pkgconfig:/usr/share/pkgconfig")
+# 32-bit .pc files: Debian and Ubuntu, Arch (lib32), then Fedora (/usr/lib; its
+# 64-bit ones are in /usr/lib64).
+set(ENV{PKG_CONFIG_LIBDIR} "/usr/lib/i386-linux-gnu/pkgconfig:/usr/lib32/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig")
