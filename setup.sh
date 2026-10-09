@@ -58,7 +58,7 @@ elif [ "$NATIVE" = 1 ]; then
   # /usr/lib64 is a directory of its own; on Arch it is /usr/lib, 64-bit)
   pcdirs="/usr/lib/i386-linux-gnu/pkgconfig /usr/lib32/pkgconfig"
   [ -d /usr/lib64 ] && [ ! -L /usr/lib64 ] && pcdirs="$pcdirs /usr/lib/pkgconfig"
-  for pc in sdl2 SDL2_ttf libavformat libavcodec libswresample; do
+  for pc in sdl2 SDL2_ttf libavformat libavcodec libswresample libavutil; do
     # where pkg-config finds it (by name or by a package's Provides, as Fedora's
     # sdl2-compat provides sdl2), and only a 32-bit directory counts
     at=$(PKG_CONFIG_PATH=${pcdirs// /:} pkg-config --path "$pc" 2>/dev/null)
@@ -69,10 +69,10 @@ elif [ "$NATIVE" = 1 ]; then
     say "  Missing: ${need[*]}. From your package manager, for example:"
     say "    Debian, Ubuntu: sudo dpkg --add-architecture i386 && sudo apt update"
     say "                    sudo apt install gcc-multilib cmake ninja-build pkg-config python3-venv fonts-liberation \\"
-    say "                                     libsdl2-dev:i386 libsdl2-ttf-dev:i386 libavformat-dev:i386 libavcodec-dev:i386 libswresample-dev:i386"
+    say "                                     libsdl2-dev:i386 libsdl2-ttf-dev:i386 libavformat-dev:i386 libavcodec-dev:i386 libswresample-dev:i386 libavutil-dev:i386"
     say "    Fedora:         sudo dnf install gcc glibc-devel.i686 libgcc.i686 libatomic.i686 cmake ninja-build pkgconf python3 liberation-sans-fonts \\"
     say "                                     sdl2-compat-devel.i686 SDL2_ttf-devel.i686 \\"
-    say "                                     libavformat-free-devel.i686 libavcodec-free-devel.i686 libswresample-free-devel.i686"
+    say "                                     libavformat-free-devel.i686 libavcodec-free-devel.i686 libswresample-free-devel.i686 libavutil-free-devel.i686"
     say "    Arch:           sudo pacman -S gcc cmake ninja python lib32-sdl2 lib32-sdl2_ttf lib32-ffmpeg ttf-liberation (multilib)"
     say "  Or ./setup.sh --wine to play the Windows builds under Wine instead."
     fail "install them, then run ./setup.sh again."

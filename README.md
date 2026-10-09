@@ -234,7 +234,7 @@ On Debian or Ubuntu (`setup.sh` names the Fedora and Arch packages):
 ```
 sudo dpkg --add-architecture i386 && sudo apt update
 sudo apt install gcc-multilib cmake ninja-build pkg-config python3-pefile python3-capstone fonts-liberation \
-                 libsdl2-dev:i386 libsdl2-ttf-dev:i386 libavformat-dev:i386 libavcodec-dev:i386 libswresample-dev:i386
+                 libsdl2-dev:i386 libsdl2-ttf-dev:i386 libavformat-dev:i386 libavcodec-dev:i386 libswresample-dev:i386 libavutil-dev:i386
 ./setup.sh
 ```
 
