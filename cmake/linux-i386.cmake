@@ -12,6 +12,8 @@ set(CMAKE_C_FLAGS_INIT "-m32")
 # host sits at 0x08048000, clear of the guest image.
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-m32 -no-pie")
 set(CMAKE_POSITION_INDEPENDENT_CODE OFF)
-# 32-bit .pc files: Debian and Ubuntu, Arch (lib32), then Fedora (/usr/lib; its
-# 64-bit ones are in /usr/lib64).
-set(ENV{PKG_CONFIG_LIBDIR} "/usr/lib/i386-linux-gnu/pkgconfig:/usr/lib32/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig")
+# The 32-bit .pc files first: Debian and Ubuntu, Arch (lib32), Fedora (/usr/lib;
+# its 64-bit ones are in /usr/lib64). Searched before the system's, not instead:
+# Fedora's i686 packages lean on the 64-bit .pc files of their dependencies
+# (harfbuzz, zlib...), whose include paths serve both.
+set(ENV{PKG_CONFIG_PATH} "/usr/lib/i386-linux-gnu/pkgconfig:/usr/lib32/pkgconfig:/usr/lib/pkgconfig")

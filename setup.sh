@@ -54,9 +54,17 @@ elif [ "$NATIVE" = 1 ]; then
   for t in gcc cmake ninja python3 pkg-config; do have "$t" || need+=("$t"); done
   printf 'int main(void){return 0;}' > /tmp/m32.c
   gcc -m32 /tmp/m32.c -o /tmp/m32 2>/dev/null || need+=("gcc -m32")
-  PKG_CONFIG_LIBDIR=/usr/lib/i386-linux-gnu/pkgconfig:/usr/lib32/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig \
-    pkg-config --exists sdl2 SDL2_ttf libavformat libavcodec libswresample 2>/dev/null ||
-    need+=("SDL2, SDL2_ttf and ffmpeg's libraries for i386")
+  # the 32-bit .pc files: Debian and Ubuntu, Arch (lib32), Fedora (/usr/lib where
+  # /usr/lib64 is a directory of its own; on Arch it is /usr/lib, 64-bit)
+  pcdirs="/usr/lib/i386-linux-gnu/pkgconfig /usr/lib32/pkgconfig"
+  [ -d /usr/lib64 ] && [ ! -L /usr/lib64 ] && pcdirs="$pcdirs /usr/lib/pkgconfig"
+  for pc in sdl2 SDL2_ttf libavformat libavcodec libswresample; do
+    # where pkg-config finds it (by name or by a package's Provides, as Fedora's
+    # sdl2-compat provides sdl2), and only a 32-bit directory counts
+    at=$(PKG_CONFIG_PATH=${pcdirs// /:} pkg-config --path "$pc" 2>/dev/null)
+    found=0; for d in $pcdirs; do [ "${at%/*}" = "$d" ] && found=1; done
+    [ $found = 1 ] || { need+=("SDL2, SDL2_ttf and ffmpeg's libraries for i386"); break; }
+  done
   if [ ${#need[@]} -gt 0 ]; then
     say "  Missing: ${need[*]}. From your package manager, for example:"
     say "    Debian, Ubuntu: sudo dpkg --add-architecture i386 && sudo apt update"
