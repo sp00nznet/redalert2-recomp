@@ -6,6 +6,19 @@ versions follow [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Mods**: a mod is a folder in `mods/yr/` or `mods/ra2/`, laid over the
+  game's folder without changing it (its files read first, what the game
+  writes going into it, its maps and `expandmd*.mix` listed with the game's).
+  `--mod NAME`; the settings menu (F10) on Windows and F9 at the main menu on
+  Linux switch mods by restarting the game; the choice is remembered
+  (`src/runtime/mods.c`, `src/linux/mods.c`, `mods/README.md`). Tried with
+  R.O.T.K., a rules-only mod and a Red Alert 2 map pack.
+- **Readable lifted C**: `run_lift.py` names functions from what the binary
+  says (pcrecomp's `tools/lift/name_lift.py`: RTTI classes and vtable slots,
+  constructors and destructors, debug messages) and gives each a header (its
+  strings, Windows calls, `this` class, callers); 7,167 of Yuri's Revenge's
+  functions and a share of Red Alert 2's are named. An older pcrecomp leaves
+  the address names.
 - **Linux, natively** (no Wine): `build-linux/ra2` (Yuri's Revenge) and
   `build-linux-game/ra2` (Red Alert 2), the same lifted C on pcrecomp's
   `runtime/win32hle` (pcrecomp #62): its own kernel32, a window manager with
@@ -140,6 +153,18 @@ a2.ini`.
   script, to tell lift bugs from host bugs.
 
 ### Fixed
+- The menus had no cursor on Linux: they are Win32 dialogs that use the
+  Windows cursor the game sets, and the window showed none. It now shows the
+  game's own arrow (from its resources) while the mouse is not captured, as
+  the Windows presenter does (#2's symptom; the Windows build had the fix
+  from 2026-10-07).
+- `setup.sh` on Linux stopped at "predates win32hle's DirectDraw and Bink"
+  with a fresh pcrecomp: #62 is not merged yet, and it now offers the pull
+  request's branch (#3). Fedora's packages are named right
+  (`sdl2-compat-devel`, the `*-free-devel` ffmpeg libraries, `libgcc`,
+  `libatomic` and `libavutil` for i686), its 32-bit libraries are found, and
+  the check counts only 32-bit ones. `setup.sh yr` runs to a playable build
+  on Fedora 44.
 - `skirmish-build` sets 640x480 itself: its sidebar coordinates are
   640x480's, and a CnCNet install's 3440x1440 INI made every click miss.
   (#1, by [@cpressland](https://github.com/cpressland))

@@ -25,6 +25,7 @@
 #include "oracle.h"
 #include "present.h"
 #include "hdvox.h"
+#include "mods.h"
 #include "recomp_target.h"   /* the binary this build runs: run_lift.py --target */
 
 extern const uint32_t ra2_entry_va;    /* recomp_dispatch.c */
@@ -975,11 +976,12 @@ static void shim_timeKillEvent(void) {
     { "GetModuleFileNameA", shim_GetModuleFileNameA }, \
     { "GetCommandLineA", shim_GetCommandLineA }
 
-static native32_shim_t g_shims[] = { GUEST_SHIMS, TIMER_SHIMS };
+static native32_shim_t g_shims[] = { GUEST_SHIMS, TIMER_SHIMS, MODS_SHIMS };
 
 static native32_shim_t g_headless_shims[] = {
     GUEST_SHIMS,
     TIMER_SHIMS,
+    MODS_SHIMS,
     { "MessageBoxA", shim_MessageBoxA },
     { "CreateWindowExA", shim_CreateWindowExA },
     { "ShowWindow", shim_ShowWindow },
@@ -1169,6 +1171,7 @@ static DWORD WINAPI watchdog(LPVOID unused) {
 int main(int argc, char** argv) {
     const char* exe = "game\\" RA2_EXE_NAME;
     const char* game = "game";
+    const char* mod = NULL;             /* --mod: a mod in mods\<game> (mods.c) */
     char exe_full[MAX_PATH], game_full[MAX_PATH];
     int run = 0;
     /* stderr unbuffered: the log is the evidence, and the game leaves through
@@ -1227,11 +1230,12 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--frames") && i + 1 < argc) g_record_frames = strtol(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--exe") && i + 1 < argc) exe = argv[++i];
         else if (!strcmp(argv[i], "--game") && i + 1 < argc) game = argv[++i];
+        else if (!strcmp(argv[i], "--mod") && i + 1 < argc) mod = argv[++i];
         else if (!strcmp(argv[i], "--watchdog") && i + 1 < argc) g_watchdog_s = strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--native-trace")) native32_trace_native = 1;
         else if (!strcmp(argv[i], "--callbacks")) native32_trace_callbacks = 1;
         else {
-            printf("usage: ra2 [--run] [--headless | --classic | [--fullscreen] [--scale sharp|smooth|crt|nearest|integer]] [--record out.mp4] [--frames N] [--exe game\\" RA2_EXE_NAME "] [--game game]\n"
+            printf("usage: ra2 [--run] [--headless | --classic | [--fullscreen] [--scale sharp|smooth|crt|nearest|integer]] [--record out.mp4] [--frames N] [--exe game\\" RA2_EXE_NAME "] [--game game] [--mod NAME|none]\n"
                    "           [--press DLG:CTRL@s] [--select DLG:CTRL=N@s] [--waitlog TEXT@s] [--move|--click x,y@s] [--key [c][s][a]+vk@s] [--wait VA@s]\n"
                    "           [--watchdog S] [--probe VA] [--debuglog] [--original] [--native-trace] [--callbacks]\n"
                    "           [--hd-voxels] [--hd-voxels-dump DIR] [--mute] [--args FILE]\n");
@@ -1248,6 +1252,7 @@ int main(int argc, char** argv) {
         g_record = rec_full;
     }
     _snprintf(g_guest_exe, sizeof g_guest_exe - 1, "%s\\" RA2_EXE_NAME, game_full);
+    mods_start(game_full, mod);         /* mods\<game>\<name> over the game's folder (mods.c) */
     _snprintf(g_guest_cmdline, sizeof g_guest_cmdline - 1, "\"%s\"", g_guest_exe);
 
     /* binkw32.dll ships in the game folder, so imports bind from there. But the

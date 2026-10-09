@@ -100,6 +100,7 @@ static struct { uint32_t h; int id; } g_dlg[MAX_DLG];
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static volatile int g_dialogs_opened;
 static volatile int g_menu_open;                 /* the main menu (0xE2) has opened: the script's clock starts */
+static volatile uint32_t g_main_menu;            /* its window, the last time it opened */
 static uint32_t g_t0;
 
 /* user32's dialog hook: on the game's thread, holding the machine */
@@ -111,7 +112,11 @@ static void dialog_created(uint32_t h, uint32_t id) {
     __sync_fetch_and_add(&g_dialogs_opened, 1);
     fprintf(stderr, "[dialog] open 0x%X\n", id);
     if (id == 0xE2 && !__sync_lock_test_and_set(&g_menu_open, 1)) g_t0 = now_ms();
+    if (id == 0xE2) g_main_menu = h;
 }
+
+/* Whether the main menu is up: nothing to lose by restarting (mods.c). */
+int script_at_main_menu(void) { return g_main_menu && hle_is_window(g_main_menu); }
 static uint32_t find_dialog(int id) {
     uint32_t h = 0;
     mach_enter();

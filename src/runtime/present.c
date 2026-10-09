@@ -29,6 +29,7 @@
 #include "input.h"
 #include "present.h"
 #include "hdvox.h"
+#include "mods.h"
 #include "recomp_target.h"
 
 int host_frame(uint32_t* out, int maxw, int maxh, int* w, int* h);   /* host.c */
@@ -449,11 +450,15 @@ static void set_game_resolution(int w, int h) {
     fprintf(stderr, "[present] game resolution %dx%d (the next game opens at it)\n", w, h);
 }
 
-enum { ID_SCALE = 100, ID_BARS = 200, ID_FULL = 300, ID_RES = 400, ID_HDVOX = 500 };
+enum { ID_SCALE = 100, ID_BARS = 200, ID_FULL = 300, ID_RES = 400, ID_HDVOX = 500, ID_MOD = 600 };
+#define MAX_MENU_MODS 64
 
 static void settings_menu(HWND hw) {             /* at the mouse */
     POINT at;
     HMENU m = CreatePopupMenu(), sc = CreatePopupMenu(), bars = CreatePopupMenu(), res = CreatePopupMenu();
+    HMENU mods = CreatePopupMenu();
+    static char mod_names[MAX_MENU_MODS][128];
+    int nmods = mods_list(mod_names, MAX_MENU_MODS);
     static const char* const scale_label[NMODES] = { "Sharp (default)", "Smooth", "CRT", "Nearest", "Integer" };
     char lbl[32];
     for (int i = 0; i < NMODES; i++)
@@ -471,6 +476,12 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     AppendMenuA(m, MF_STRING | (ra2_vox_hd_on ? MF_CHECKED : 0), ID_HDVOX, "HD vehicles (voxels at 2x)");
     AppendMenuA(m, MF_SEPARATOR, 0, NULL);
     AppendMenuA(m, MF_POPUP, (UINT_PTR)res, "Game resolution (next game)");
+    /* the mods in mods\<game>: choosing one restarts the game with it (mods.c) */
+    AppendMenuA(mods, MF_STRING | (!mods_active()[0] ? MF_CHECKED : 0), ID_MOD, "None (the game as it shipped)");
+    for (int i = 0; i < nmods; i++)
+        AppendMenuA(mods, MF_STRING | (!_stricmp(mods_active(), mod_names[i]) ? MF_CHECKED : 0), ID_MOD + 1 + i, mod_names[i]);
+    if (!nmods) AppendMenuA(mods, MF_STRING | MF_GRAYED, 0, "(put mods in the mods folder: mods\\README.md)");
+    AppendMenuA(m, MF_POPUP, (UINT_PTR)mods, "Mod (restarts the game)");
     GetCursorPos(&at);
     int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, at.x, at.y, 0, hw, NULL);
     DestroyMenu(m);                                           /* and its submenus */
@@ -479,6 +490,16 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     else if (cmd == ID_FULL) set_fullscreen(hw, !g_fullscreen);
     else if (cmd == ID_HDVOX) ra2_vox_hd_on = !ra2_vox_hd_on;      /* takes effect next frame */
     else if (cmd >= ID_RES && cmd < ID_RES + NRES) set_game_resolution(k_res[cmd - ID_RES][0], k_res[cmd - ID_RES][1]);
+    else if (cmd >= ID_MOD && cmd <= ID_MOD + nmods) {
+        const char* name = cmd == ID_MOD ? "" : mod_names[cmd - ID_MOD - 1];
+        char ask[256];
+        _snprintf(ask, sizeof ask - 1, "Restart with %s? A game in progress is lost.", name[0] ? name : "no mod"), ask[sizeof ask - 1] = 0;
+        if (_stricmp(name, mods_active()) && MessageBoxA(hw, ask, RA2_TITLE " (recomp)", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+            settings_save(hw);
+            mods_restart_with(name);
+        }
+        return;
+    }
     if (cmd) settings_save(hw);
 }
 
@@ -637,6 +658,11 @@ static DWORD WINAPI present_thread(LPVOID arg) {
     HWND hw = CreateWindowExA(0, "RA2Presenter", RA2_TITLE " (recomp)", WS_OVERLAPPEDWINDOW,
                               wx, wy, ww, wh, NULL, NULL, wc.hInstance, NULL);
     g_present_hwnd = hw;
+    if (hw && mods_active()[0]) {                 /* the mod playing, in the title */
+        char title[256];
+        _snprintf(title, sizeof title - 1, RA2_TITLE " (recomp) - %s", mods_active()), title[sizeof title - 1] = 0;
+        SetWindowTextA(hw, title);
+    }
     if (!hw || !d3d_init(hw)) {
         fprintf(stderr, "[present] could not start; run with --classic for the original display\n");
         ExitProcess(5);
