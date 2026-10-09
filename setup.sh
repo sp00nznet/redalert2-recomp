@@ -62,7 +62,7 @@ elif [ "$NATIVE" = 1 ]; then
     say "    Debian, Ubuntu: sudo dpkg --add-architecture i386 && sudo apt update"
     say "                    sudo apt install gcc-multilib cmake ninja-build pkg-config python3-venv fonts-liberation \\"
     say "                                     libsdl2-dev:i386 libsdl2-ttf-dev:i386 libavformat-dev:i386 libavcodec-dev:i386 libswresample-dev:i386"
-    say "    Fedora:         sudo dnf install gcc glibc-devel.i686 libgcc.i686 cmake ninja-build pkgconf python3 liberation-sans-fonts \\"
+    say "    Fedora:         sudo dnf install gcc glibc-devel.i686 libgcc.i686 libatomic.i686 cmake ninja-build pkgconf python3 liberation-sans-fonts \\"
     say "                                     sdl2-compat-devel.i686 SDL2_ttf-devel.i686 \\"
     say "                                     libavformat-free-devel.i686 libavcodec-free-devel.i686 libswresample-free-devel.i686"
     say "    Arch:           sudo pacman -S gcc cmake ninja python lib32-sdl2 lib32-sdl2_ttf lib32-ffmpeg ttf-liberation (multilib)"
