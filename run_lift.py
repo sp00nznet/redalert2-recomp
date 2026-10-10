@@ -330,9 +330,9 @@ def main():
     stamp = exe_stamp(args.exe)
     if stamp != tgt['stamp']:
         sys.exit('%s is not the build this project supports: its PE timestamp is 0x%08X, '
-                 'the Steam release\'s is 0x%08X (docs/RECON.md). A different release '
-                 '(EA App, Origin, a CD, a CnCNet- or mod-patched exe) needs its own '
-                 'addresses; use the Steam build\'s %s.' % (args.exe, stamp, tgt['stamp'], tgt['exe_name']))
+                 'the Steam and EA App release\'s is 0x%08X (docs/RECON.md). A different '
+                 'release (a CD, a CnCNet- or mod-patched exe) needs its own addresses; '
+                 'use the Steam or EA App build\'s %s.' % (args.exe, stamp, tgt['stamp'], tgt['exe_name']))
     info = analyze_pe(args.exe)
     iat = build_iat_map(info)
     cs, ce = info.code_start, info.code_end

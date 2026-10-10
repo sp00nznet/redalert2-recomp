@@ -60,7 +60,7 @@ for comparison.
 
 | Stage | State |
 |---|---|
-| P0: pick the build | the Steam build of *The Ultimate Collection*: `gamemd.exe`, 2001-10-31, no DRM, launcher check already patched out ([RECON.md](docs/RECON.md)) |
+| P0: pick the build | the Steam build of *The Ultimate Collection* (the EA App's is the same code): `gamemd.exe`, 2001-10-31, no DRM, launcher check already patched out ([RECON.md](docs/RECON.md)) |
 | RTTI class recovery | 954 classes, 1,214 vtables, 6,665 virtual methods |
 | Function catalog (`disasm32`) | 24,940 functions, 91.8% of `.text`, 15 minutes |
 | Lift (`run_lift.py --all`) | 24,954 functions, 5.8M lines of C, **0 lift errors** |
@@ -120,9 +120,10 @@ score screen at the end.
 
 ## Getting Started
 
-You need **your own copy of Red Alert 2 and Yuri's Revenge**: the Steam build
-of *Command & Conquer: Red Alert 2 and Yuri's Revenge* (the folder holding
-`game.exe` and `gamemd.exe`). One install has both games, and both are built:
+You need **your own copy of Red Alert 2 and Yuri's Revenge**: the Steam or EA
+App (Origin) build of *Command & Conquer: Red Alert 2 and Yuri's Revenge* (the
+folder holding `game.exe` and `gamemd.exe`). The two ship the same code; EA's
+exes are only signed differently. One install has both games, and both are built:
 
 | Game | Exe | Builds into | Play with |
 |---|---|---|---|
@@ -142,7 +143,7 @@ macOS, [macOS and Linux, under Wine](#macos-and-linux-under-wine).
 
 It checks for Python 3.10+, the `pefile` and `capstone` packages, the pcrecomp
 toolkit, Visual Studio 2022 with the C++ x86 tools, CMake and Ninja, and
-**asks** before installing anything. It finds the game in your Steam library or
+**asks** before installing anything. It finds the game in your Steam or EA App library or
 asks for the folder and copies it into `game\`. Then, for each game, Yuri's
 Revenge first and then Red Alert 2, it builds the function catalog, lifts and
 builds. A rerun skips finished steps. If it stops, it says why in one
@@ -177,6 +178,10 @@ some-folder\
 2. Copy your install into `game\` (about 1.9 GB):
    ```
    robocopy "C:\Program Files (x86)\Steam\steamapps\common\Command & Conquer Red Alert II" game /E
+   ```
+   or, from the EA App:
+   ```
+   robocopy "C:\Program Files\EA Games\Command and Conquer Red Alert II" game /E
    ```
 3. Headers, imports and C++ classes (seconds):
    ```

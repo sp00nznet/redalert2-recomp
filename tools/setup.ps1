@@ -152,6 +152,13 @@ function Find-Steam {
   }
   return ""
 }
+# The EA App (and Origin before it) ships the same exes, re-signed: every
+# section is byte-identical to Steam's (docs/RECON.md).
+function Find-EA {
+  try { $d = (Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\EA Games\Command and Conquer Red Alert II' -ErrorAction Stop).'Install Dir' } catch { return "" }
+  if (Is-Install $d) { return $d.TrimEnd('\') }
+  return ""
+}
 
 if ((Is-Install 'game') -and -not $Force) {
   Say "  Already in game\ (skipping)."
@@ -160,6 +167,10 @@ if ((Is-Install 'game') -and -not $Force) {
   if (-not (Is-Install $Game)) {
     $Game = Find-Steam
     if ($Game) { Say "  Found it in your Steam library: $Game" }
+  }
+  if (-not (Is-Install $Game)) {
+    $Game = Find-EA
+    if ($Game) { Say "  Found it in your EA App library: $Game" }
   }
   while (-not (Is-Install $Game)) {
     $Game = (Read-Host "  Paste the folder Red Alert 2 is installed in (the one with gamemd.exe and game.exe)").Trim('"', ' ')

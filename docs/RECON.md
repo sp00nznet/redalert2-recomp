@@ -41,6 +41,13 @@ MSVC 6.0, statically linked CRT, no `.reloc`, no DRM. The 10,560-byte
 overlay is the Authenticode signature. Raw offsets equal RVAs for `.text`,
 `.rdata` and `.data`, which makes byte-level work on it easy.
 
+The **EA App (Origin) build** is the same: every section of its `game.exe`
+and `gamemd.exe` is byte-identical to Steam's, and so is the PE timestamp.
+Only the header checksum and the signature differ (EA re-signed them, 296
+bytes longer), so it lifts to the same C and the same patches apply. The
+rest of the folder matches too, plus EA's `Core\Activation.dll`, which the
+exes do not import.
+
 The **launcher check is already gone** in this build. `0x0049F5C0` ("Checking
 if launcher is running") and `0x0049F620` ("Notify launcher") are both
 `mov al, 1; ret`, with the original bodies left behind them as dead code. So
