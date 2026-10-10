@@ -56,7 +56,7 @@ for comparison.
   Wine ([macOS and Linux, under Wine](#macos-and-linux-under-wine)). `--mute`
   for silent runs.
 
-## Status: **v0.1.0-dev, playable.** The whole game lifts with 0 errors and plays: every main-menu screen, skirmishes from setup to the score screen, and both campaigns, in the presenter or headless, checked by a scripted test suite.
+## Status: **v0.1.0-dev, playable.** The whole game lifts with 0 errors and plays: every main-menu screen, skirmishes from setup to the score screen, and both campaigns, in the presenter or headless, checked by a scripted test suite; on Windows, natively on Linux, and under Wine and CrossOver.
 
 | Stage | State |
 |---|---|
@@ -65,7 +65,7 @@ for comparison.
 | Function catalog (`disasm32`) | 24,940 functions, 91.8% of `.text`, 15 minutes |
 | Lift (`run_lift.py --all`) | 24,954 functions, 5.8M lines of C, **0 lift errors** |
 | Host (`build/ra2.exe`, 32-bit, pcrecomp `native32`) | plays: the intro, every menu, skirmishes and both campaigns, 720p to 4K, in its own Direct3D 11 presenter or headless ([bringup.md](docs/bringup.md), [presenter.md](docs/presenter.md)) |
-| Playtest suite (`tools/playtest.py`) | **29 of 29 passing**, with HD vehicles off and on: every menu screen, every way back, a skirmish start to score screen, orders by mouse (select, deploy, force-fire), the Allied and Soviet campaigns, 720p to 4K: scripted by button name, run in parallel, and `--original` runs the same script on the shipping code to tell lift bugs from host bugs ([testing.md](docs/testing.md)) |
+| Playtest suite (`tools/playtest.py`) | **30 of 30 passing** (each game), with HD vehicles off and on: every menu screen, every way back, a skirmish start to score screen, orders by mouse (select, deploy, force-fire), the Allied and Soviet campaigns, 720p to 4K: scripted by button name, run in parallel, and `--original` runs the same script on the shipping code to tell lift bugs from host bugs ([testing.md](docs/testing.md)) |
 | Presenter (the default display) | the game in its own Direct3D 11 window: five scalings (F12), borderless fullscreen (F11), the settings menu (F10), blurred bars, settings remembered; `--classic` is the original DirectDraw ([presenter.md](docs/presenter.md)) |
 | HD vehicles | units, their shadows and aircraft at 2x, from four half-pixel-offset renders of each model, remembered by their 1x pixels; no change in frame time; voxel debris opt-in ([voxels.md](docs/voxels.md)) |
 | High resolution / widescreen | 720p, 1080p, 1440p and 4K in game, skirmish and campaign, picked from the presenter's settings menu (F10) or `RA2MD.INI`; 4K needed a fix to RA2's own sidebar ([hires.md](docs/hires.md)) |
@@ -73,6 +73,9 @@ for comparison.
 | Multiplayer | RA2 against RA2 over the LAN between two PCs, scripted on both sides into the game ([testing.md](docs/testing.md)) |
 | Native Linux (`build-linux/ra2`, pcrecomp `win32hle`) | both games as Linux programs, no Wine: the Bink movies, every menu, skirmishes, both campaigns, saves, HD vehicles; the playtest suite in Docker ([Linux, native](#linux-native)) |
 | Red Alert 2 (`game.exe`) | a second target from the same install: 23,201 functions, 0 lift errors, the suite at 30 of 30, 720p to 4K, HD vehicles ([bringup.md](docs/bringup.md), section 13) |
+| macOS and Linux, under Wine | the Windows build cross-compiled with clang-cl and xwin, played under Wine or CrossOver ([Linux and macOS](#macos-and-linux-under-wine)) |
+| Mods | a folder in `mods/`, laid over the game's without changing it, switched in game (F10, F9 on Linux) ([mods/README.md](mods/README.md)) |
+| Readable lifted C | functions named from RTTI, vtables and the game's messages, each with a header: 7,167 of Yuri's Revenge's named |
 | Compilers | MSVC (x86), Visual Studio 2022 or 2026; clang-cl (x86) |
 | Conformance harness | `tools/conformance.py`: **8/8** boot milestones up to the main menu, lift 0 errors, against `conformance.json`; fails on regression |
 
