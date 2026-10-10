@@ -1,37 +1,47 @@
 # Roadmap
 
-## Wrapping up Red Alert 2
+## Done
+
+- **Both games recompiled**: Yuri's Revenge (`gamemd.exe` 1.001) and Red
+  Alert 2 (`game.exe` 1.006) from the same install, each with the host,
+  patches and remaster, the playtest suite at 30 of 30 for each.
+- **Playing, not just reaching**: every menu screen, a skirmish to its score
+  screen, both campaigns into their first mission, and `skirmish-build`
+  (deploy, power plant, barracks, a GI, checked in the game's event log).
+- **LAN** between two PCs, scripted on both (docs/testing.md).
+- **Platforms**: Windows with MSVC (Visual Studio 2022 or 2026) or clang-cl;
+  Linux natively on pcrecomp's win32hle, both games 30 of 30; Linux under
+  Wine; macOS under CrossOver.
+- **Setup**: Setup.cmd on Windows and `setup.sh` on Linux and macOS, from the
+  ZIP download to a shortcut.
+- **Mods**: a folder in `mods/`, laid over the game's, switched in game
+  (`mods/README.md`).
+- **Readable lifted C**: functions named from RTTI, vtables and the game's
+  own messages, each with a header.
+- The toolkit work all of this needed is on pcrecomp `main`.
+
+## Next
 
 In order; each is done when its check is in the suite or the docs.
 
-Done: the toolkit fixes found here are in pcrecomp `main` (#41 to #44), and
-Setup.cmd has been run end to end from a clean folder (the ZIP download).
-
-1. **Play, not just reach.** Done: `skirmish-build` deploys, builds a power
-   plant and a barracks and trains a GI, checked in the game's event log.
-   Next: a mission played to its win.
-   A fight that throws voxel debris under the camera comes with it, and HD
-   voxel animations go on by default once it passes.
-2. **Red Alert 2 itself** (`game.exe`, same install). Done: catalog, lift,
-   the same host and patches re-found by their shapes (sidebar, options,
-   HD vehicles), the suite at 30 of 30 (bringup.md, section 13).
-3. **The rest of the menus** in the suite: the remaining Options screens,
-   Load with a save present, WOnline as far as it goes
-   without servers.
-4. **Audio in `--record`**, and a native reference run (the shipping
-   `gamemd.exe` recorded under offstage) to compare frames against.
-5. **Multiplayer**: the LAN game works between two PCs (docs/testing.md).
-   Next: a match played to an end, more than two players, and the same
-   across a NAT.
-6. **Release**: v0.1.0.
+1. **A mission played to its win.** A fight that throws voxel debris under
+   the camera comes with it, and HD voxel animations go on by default once it
+   passes (they are opt-in, `RA2_HD_VOXEL_ANIMS=1`).
+2. **The rest of the menus** in the suite: the remaining Options screens,
+   Load with a save present, WOnline as far as it goes without servers.
+3. **Audio in `--record`**, and a native reference run (the shipping exe
+   recorded) to compare frames against.
+4. **Multiplayer**: a LAN match played to an end, more than two players, and
+   the same across a NAT; Windows against Linux.
+5. **Release**: v0.1.0.
 
 ## Tiberian Sun and Firestorm
 
-Its own repo, `tiberiansun-recomp`, the way civ, civ2 and civ3 are three:
-each game's catalog, lift, patches and hooks are tied to its exe's addresses.
-It started from this repo's host, presenter, scripted input and test tools;
-moving that shared host into pcrecomp, so both games use one copy, is still
-to do.
+[tiberiansun-recomp](https://github.com/sp00nznet/tiberiansun-recomp), its
+own repo since each game's catalog, lift, patches and hooks are tied to its
+exe's addresses. It started from this repo's host, presenter, scripted input
+and test tools, and has the same platforms, mods and remaster. Moving that
+shared host into pcrecomp, so both repos use one copy, is still to do.
 
 ## The remaster
 
@@ -42,9 +52,8 @@ not on patches to a binary:
   bars beside the 4:3 menus, remembered settings (docs/presenter.md), and
   720p to 4K in game (docs/hires.md).
 - **HD voxels.** Done for units, their shadows and aircraft
-  (docs/voxels.md). Voxel animations and debris are written and opt-in: next
-  is a test that puts one on screen (an explosion with debris under the
-  camera). Then the units drawn by 0x0073C5F0, and 2x above a game
+  (docs/voxels.md). Voxel animations and debris are written and opt-in (see
+  Next, 1). Then the units drawn by 0x0073C5F0, and 2x above a game
   resolution of 2048x1080.
 - **Higher-resolution art paths**, where a larger source exists or can be
   produced, behind the same asset loaders.

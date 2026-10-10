@@ -12,7 +12,8 @@ Built on the [pcrecomp](https://github.com/sp00nznet/pcrecomp) toolchain and
 following its shared house style (layout, CLI, harness, headless mode). Tiberian
 Dawn and Red Alert have released source and are ported from it; this engine has
 none, so it is recompiled. Tiberian Sun and Firestorm, the same engine's first
-games, have a repo of their own.
+games, are recompiled the same way in
+[tiberiansun-recomp](https://github.com/sp00nznet/tiberiansun-recomp).
 
 This is not [OpenRA](https://www.openra.net/). OpenRA is a separate engine
 that loads the original assets and reimplements the rules; this project runs
