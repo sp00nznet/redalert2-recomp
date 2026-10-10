@@ -314,9 +314,18 @@ static HWND target_at(POINT gp, POINT* local) {
     if (!g_input_hwnd) goto done;
     ClientToScreen(g_input_hwnd, &o);              /* the virtual screen's (0,0), really */
     g_hit.real.x = gp.x + o.x, g_hit.real.y = gp.y + o.y;
-    g_hit.best = NULL, g_hit.best_depth = -1;
-    EnumThreadWindows(GetWindowThreadProcessId(g_input_hwnd, NULL), hit_top, 0);
-    t = g_hit.best ? g_hit.best : g_input_hwnd;
+    /* A window holding the capture gets the mouse wherever it is, as on
+     * Windows: an open combo list takes it and commits only on a press sent
+     * to it, so a press posted to the row beneath never chose anything. */
+    GUITHREADINFO gti = { sizeof gti };
+    DWORD tid = GetWindowThreadProcessId(g_input_hwnd, NULL);
+    if (GetGUIThreadInfo(tid, &gti) && gti.hwndCapture) {
+        t = gti.hwndCapture;
+    } else {
+        g_hit.best = NULL, g_hit.best_depth = -1;
+        EnumThreadWindows(tid, hit_top, 0);
+        t = g_hit.best ? g_hit.best : g_input_hwnd;
+    }
     *local = g_hit.real;
     ScreenToClient(t, local);
 done:
@@ -340,7 +349,12 @@ static void forward_mouse(UINT m, WPARAM w, int x, int y) {
         g_capture_target = t;
         g_capture_off.x = gp.x - local.x, g_capture_off.y = gp.y - local.y;
     }
+    /* Posted from here, aware, to an unaware window, Windows scales the
+     * point by 1/scale: at 125% a combo's arrow click landed left of the
+     * arrow and list rows drifted. Posted unaware, it arrives as sent. */
+    void* was = g_set_dpi_ctx ? g_set_dpi_ctx((void*)(intptr_t)-1) : NULL;   /* DPI_AWARENESS_CONTEXT_UNAWARE */
     input_post_mouse(t, m, w, MAKELPARAM(local.x, local.y));
+    if (was) g_set_dpi_ctx(was);
     if (m == WM_LBUTTONDOWN || m == WM_RBUTTONDOWN) {
         char cls[32] = "";
         GetClassNameA(t, cls, sizeof cls);

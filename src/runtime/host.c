@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include <ddraw.h>
+#include <dsound.h>
 
 #include "native32.h"
 #include "recomp_trace.h"
@@ -626,6 +627,51 @@ static void shim_DirectDrawCreate(void) {
     fprintf(stderr, "[headless] DirectDrawCreate -> 0x%08lX\n", hr);
     g_eax = (uint32_t)hr;
     g_esp += 4 + 3 * 4;
+}
+
+/* Sound with the presenter. DirectSound plays a buffer without
+ * DSBCAPS_GLOBALFOCUS only while the game's window is in front, and here it
+ * never is: the presenter's is. So battles were silent and menus cut out.
+ * Every secondary buffer gets the flag. DirectSoundCreate is imported by
+ * ordinal, which no shim matches, so its IAT slot is replaced after binding. */
+typedef HRESULT (WINAPI *ds_create_t)(LPCGUID, LPDIRECTSOUND*, LPUNKNOWN);
+typedef HRESULT (WINAPI *ds_buffer_t)(IDirectSound*, LPCDSBUFFERDESC, LPDIRECTSOUNDBUFFER*, LPUNKNOWN);
+static ds_create_t g_real_dscreate;
+static ds_buffer_t g_real_dsbuffer;
+
+static HRESULT WINAPI hl_CreateSoundBuffer(IDirectSound* ds, LPCDSBUFFERDESC d, LPDIRECTSOUNDBUFFER* out, LPUNKNOWN u) {
+    DSBUFFERDESC g = { 0 };
+    if (d && !(d->dwFlags & DSBCAPS_PRIMARYBUFFER)) {
+        memcpy(&g, d, d->dwSize < sizeof g ? d->dwSize : sizeof g);   /* dwSize stays the game's */
+        g.dwFlags |= DSBCAPS_GLOBALFOCUS;
+        d = &g;
+    }
+    return g_real_dsbuffer(ds, d, out, u);
+}
+
+static HRESULT WINAPI hl_DirectSoundCreate(LPCGUID guid, LPDIRECTSOUND* out, LPUNKNOWN outer) {
+    HRESULT hr = g_real_dscreate(guid, out, outer);
+    if (hr == DS_OK && !g_real_dsbuffer)
+        patch(*(void***)*out, 3, (void*)hl_CreateSoundBuffer, (void**)&g_real_dsbuffer);
+    fprintf(stderr, "[sound] DirectSoundCreate -> 0x%08lX (buffers play out of focus)\n", hr);
+    return hr;
+}
+
+static void redirect_dsound(void) {
+    uint8_t* b = (uint8_t*)(uintptr_t)RA2_IMAGE_BASE;
+    IMAGE_NT_HEADERS32* nt = (IMAGE_NT_HEADERS32*)(b + ((IMAGE_DOS_HEADER*)b)->e_lfanew);
+    IMAGE_IMPORT_DESCRIPTOR* d = (IMAGE_IMPORT_DESCRIPTOR*)
+        (b + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+    for (; d->Name; d++) {
+        if (_stricmp((const char*)b + d->Name, "dsound.dll") || !d->OriginalFirstThunk) continue;
+        uint32_t* ilt = (uint32_t*)(b + d->OriginalFirstThunk);
+        uint32_t* iat = (uint32_t*)(b + d->FirstThunk);
+        for (; *ilt; ilt++, iat++)
+            if (*ilt == (IMAGE_ORDINAL_FLAG32 | 1) && *iat) {   /* #1: DirectSoundCreate */
+                g_real_dscreate = (ds_create_t)(uintptr_t)*iat;
+                *iat = (uint32_t)(uintptr_t)hl_DirectSoundCreate;
+            }
+    }
 }
 
 /* --record out.mp4: the primary, read at 30 fps from a host thread and piped
@@ -1314,7 +1360,7 @@ int main(int argc, char** argv) {
             char msg[MAX_PATH + 256];
             _snprintf(msg, sizeof msg - 1, "%s is not the build this host was lifted from "
                       "(PE timestamp 0x%08X, wanted 0x%08X). Lift and build from the Steam "
-                      "release's " RA2_EXE_NAME " (README, Getting Started).", exe_full, stamp, RA2_EXE_STAMP);
+                      "or EA App release's " RA2_EXE_NAME " (README, Getting Started).", exe_full, stamp, RA2_EXE_STAMP);
             fprintf(stderr, "%s\n", msg);
             if (!g_headless) MessageBoxA(NULL, msg, RA2_TITLE " (recomp)", MB_ICONERROR);
             return 1;
@@ -1324,6 +1370,7 @@ int main(int argc, char** argv) {
     if (!span) { fprintf(stderr, "cannot map %s at 0x%08X\n", exe_full, RA2_IMAGE_BASE); return 1; }
     printf("  mapped %s: 0x%08X-0x%08X\n", exe, RA2_IMAGE_BASE, RA2_IMAGE_BASE + span);
     if (native32_bind(RA2_IMAGE_BASE, shims, nshims)) return 1;
+    if (!g_classic) redirect_dsound();
     printf("  guest exe %s\n", g_guest_exe);
 
     if (!run) {
