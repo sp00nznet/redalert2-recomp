@@ -61,7 +61,7 @@ elif [ "$NATIVE" = 1 ]; then
   for pc in sdl2 SDL2_ttf libavformat libavcodec libswresample libavutil; do
     # where pkg-config finds it (by name or by a package's Provides, as Fedora's
     # sdl2-compat provides sdl2), and only a 32-bit directory counts
-    at=$(PKG_CONFIG_PATH=${pcdirs// /:} pkg-config --path "$pc" 2>/dev/null)
+    at=$(PKG_CONFIG_PATH=${pcdirs// /:} pkg-config --path "$pc" 2>/dev/null || true)   # not found: set -e left silently
     found=0; for d in $pcdirs; do [ "${at%/*}" = "$d" ] && found=1; done
     [ $found = 1 ] || { need+=("SDL2, SDL2_ttf and ffmpeg's libraries for i386"); break; }
   done

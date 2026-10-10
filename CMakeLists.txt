@@ -29,7 +29,7 @@ else()
 endif()
 file(GLOB GEN_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/${GEN_DIR}/*.c")
 if(NOT GEN_SOURCES)
-  message(FATAL_ERROR "${GEN_DIR} is empty -- run `py -3 run_lift.py --target ${RA2_TARGET}` first")
+  message(FATAL_ERROR "${GEN_DIR} is empty -- run ./setup.sh (Setup.cmd on Windows) first: it lifts each game")
 endif()
 
 # ---- native Linux: the lifted C on runtime/win32hle (cmake/linux-i386.cmake)
