@@ -158,6 +158,8 @@ a2.ini`.
   drops the sign test of a 16-bit value moved to the top of a register, so a
   -1 index got past a bounds check. The lifted C is now built with its older
   optimiser there (`/d2SSAOptimizer-`).
+- `setup.sh` no longer offers pcrecomp's unmerged win32hle branch: that work
+  is on pcrecomp's `main` now, and an older clone is offered a `git pull`.
 - `Setup.cmd` from a folder inside the game's install copied the install
   into itself until the disk filled; that folder is now left out. A path
   with `&` in it, which the build cannot handle, is refused with a message.

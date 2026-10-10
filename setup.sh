@@ -137,26 +137,18 @@ fi
 # Under Wine, callbacks into lifted code need DEP turned on and a fetch that
 # Wine reports as a read accepted (runtime/native32/native32.c). The native
 # host is the lifted game on win32hle's DirectDraw, DirectSound, Bink and windows.
-# Until pcrecomp #62 is merged its main branch has neither: a clone of it is
-# offered the pull request's branch.
-WIN32HLE_BRANCH=feat/win32hle-ts
-if [ "$NATIVE" = 1 ]; then
-  if [ ! -f "$PCRECOMP/runtime/win32hle/bink.c" ] && [ -d "$PCRECOMP/.git" ] &&
-     git -C "$PCRECOMP" ls-remote --exit-code origin "$WIN32HLE_BRANCH" >/dev/null 2>&1; then
-    say "  The native build needs win32hle's DirectDraw and Bink, which are on pcrecomp's"
-    say "  $WIN32HLE_BRANCH branch (pull request #62) and not yet on its main branch."
-    if ask "  Check that branch out in $PCRECOMP?"; then
-      git -C "$PCRECOMP" fetch -q origin "$WIN32HLE_BRANCH" &&
-        git -C "$PCRECOMP" checkout -q FETCH_HEAD ||
-        fail "could not check out $WIN32HLE_BRANCH in $PCRECOMP (local changes?)."
-    fi
+# An older clone has neither: it is updated (pcrecomp's main has both).
+toolkit_ok() {
+  grep -q SetProcessDEPPolicy "$PCRECOMP/runtime/native32/native32.c" &&
+    { [ "$NATIVE" != 1 ] || [ -f "$PCRECOMP/runtime/win32hle/bink.c" ]; }
+}
+if ! toolkit_ok && [ -d "$PCRECOMP/.git" ]; then
+  say "  $PCRECOMP is older than this build needs."
+  if ask "  Update it (git pull)?"; then
+    git -C "$PCRECOMP" pull -q --ff-only || fail "could not update $PCRECOMP (local changes, or not on main?)."
   fi
-  [ -f "$PCRECOMP/runtime/win32hle/bink.c" ] ||
-    fail "$PCRECOMP predates win32hle's DirectDraw and Bink (pcrecomp #62): update it, or ./setup.sh --wine."
-else
-  grep -q SetProcessDEPPolicy "$PCRECOMP/runtime/native32/native32.c" ||
-    fail "$PCRECOMP predates native32's Wine support (pcrecomp #55): update it."
 fi
+toolkit_ok || fail "$PCRECOMP is too old for this build: update it (git -C \"$PCRECOMP\" pull)."
 export PCRECOMP
 say "  pcrecomp: $PCRECOMP"
 

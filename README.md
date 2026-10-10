@@ -72,7 +72,7 @@ for comparison.
 | Multiplayer | RA2 against RA2 over the LAN between two PCs, scripted on both sides into the game ([testing.md](docs/testing.md)) |
 | Native Linux (`build-linux/ra2`, pcrecomp `win32hle`) | both games as Linux programs, no Wine: the Bink movies, every menu, skirmishes, both campaigns, saves, HD vehicles; the playtest suite in Docker ([Linux, native](#linux-native)) |
 | Red Alert 2 (`game.exe`) | a second target from the same install: 23,201 functions, 0 lift errors, the suite at 30 of 30, 720p to 4K, HD vehicles ([bringup.md](docs/bringup.md), section 13) |
-| Compilers | MSVC (x86); clang-cl (x86) with pcrecomp #47 |
+| Compilers | MSVC (x86), Visual Studio 2022 or 2026; clang-cl (x86) |
 | Conformance harness | `tools/conformance.py`: **8/8** boot milestones up to the main menu, lift 0 errors, against `conformance.json`; fails on regression |
 
 [bringup.md](docs/bringup.md) is the log of each wall and its fix. Five of them
@@ -244,7 +244,7 @@ and `Red Alert 2 (recomp).sh` (`./setup.sh --wine` builds the Windows exes
 for Wine instead). By hand, it is *Step by step* with `python3` for `py -3`
 and `./build-linux.sh` for `build.cmd` (`BUILD_DIR=build-linux-game
 CMAKE_ARGS=-DRA2_TARGET=game` for Red Alert 2), then `build-linux/ra2 --run`.
-It needs pcrecomp with win32hle's DirectDraw and Bink (pcrecomp #62).
+It needs a current pcrecomp (`main`); `setup.sh` offers to update an older clone.
 
 The window scales like the Windows presenter: F12 cycles sharp, smooth, CRT,
 nearest and integer scaling, F11 (or Alt+Enter) is fullscreen, and `ra2.ini`
@@ -294,7 +294,7 @@ Mac, `CX_BOTTLE` picks the bottle, default `Steam`). `tools/playtest.py` and
 `tools/conformance.py` run the host through Wine off Windows (`RA2_WINE` for
 another launcher).
 
-It needs pcrecomp's native32 with Wine support (pcrecomp #55): DEP turned on
+It needs a current pcrecomp (`main`), whose native32 supports Wine: DEP turned on
 at start (Wine otherwise answers the first fetch from the guest's code by
 making it executable, and runs the shipping machine code) and a fetch fault
 that Wine under Rosetta reports as a read accepted as a callback. The network
@@ -390,10 +390,7 @@ Steps 5 and 6 above. `PCRECOMP` (environment, for `run_lift.py`) and
 `-DPCRECOMP=` (CMake) point at a toolkit checkout other than `..\tools`; the
 lifter and the runtime must come from the same tree.
 
-It builds from pcrecomp `main`: the four toolkit fixes found here (#41
-mid-body fall-through, #42 lifted loops yield the machine, #43 push/jmp
-inside a body, #44 MASM alignment fillers in the catalog) are merged. A
-clang-cl build also needs #47 (native32's bridge under clang-cl).
+It builds from pcrecomp `main`, for MSVC and clang-cl alike.
 
 Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
 
