@@ -79,6 +79,13 @@ target_link_options(ra2 PRIVATE /BASE:0x60000000 /FIXED:NO /DYNAMICBASE:NO
                                /NXCOMPAT /LARGEADDRESSAWARE /STACK:0x1000000
                                /MANIFESTUAC:NO)
 set(GEN_OPT "/O2" CACHE STRING "optimisation for the generated C")
+# Visual Studio 2026's compiler (19.50 and later) drops the sign test of a
+# 16-bit value shifted to the top of a register (test ax,ax; jl), so a -1
+# index got past a bounds check and a skirmish crashed as it started (issue
+# #2). Its older optimiser compiles it correctly.
+if(MSVC_VERSION GREATER_EQUAL 1950)
+  string(APPEND GEN_OPT ";/d2SSAOptimizer-")
+endif()
 set_source_files_properties(${GEN_SOURCES} PROPERTIES COMPILE_OPTIONS "/w;${GEN_OPT}")
 set_source_files_properties(src/runtime/host.c src/runtime/input.c src/runtime/mods.c src/runtime/oracle.c src/runtime/present.c src/runtime/hdvox.c PROPERTIES COMPILE_OPTIONS "/W3")
 target_link_libraries(ra2 PRIVATE user32 gdi32 kernel32 ole32 uuid ddraw dxguid winmm d3d11 dxgi shell32)

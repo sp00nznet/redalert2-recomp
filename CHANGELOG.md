@@ -153,6 +153,14 @@ a2.ini`.
   script, to tell lift bugs from host bugs.
 
 ### Fixed
+- Built with Visual Studio 2026 (MSVC 19.50 and later), every skirmish and
+  campaign crashed as the map loaded (issue #2). That compiler's optimiser
+  drops the sign test of a 16-bit value moved to the top of a register, so a
+  -1 index got past a bounds check. The lifted C is now built with its older
+  optimiser there (`/d2SSAOptimizer-`).
+- `Setup.cmd` from a folder inside the game's install copied the install
+  into itself until the disk filled; that folder is now left out. A path
+  with `&` in it, which the build cannot handle, is refused with a message.
 - The menus had no cursor on Linux: they are Win32 dialogs that use the
   Windows cursor the game sets, and the window showed none. It now shows the
   game's own arrow (from its resources) while the mouse is not captured, as

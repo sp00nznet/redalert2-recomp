@@ -28,6 +28,13 @@ function Log($t) { try { Add-Content -Path $Log -Value $t -Encoding UTF8 -ErrorA
 Log "==== setup $(Get-Date -Format s)"
 
 function Say($t, $c = 'Gray') { Write-Host $t -ForegroundColor $c; Log $t }
+# cmd.exe, which the build runs commands through, splits a path at '&'.
+if ($Root -match '&') {
+  Say "This folder's path has an '&' in it, which the build cannot handle:" 'Red'
+  Say "  $Root" 'Red'
+  Say "Move the folder somewhere else (for example C:\redalert2-recomp) and run Setup.cmd from there." 'Yellow'
+  Read-Host "Press Enter to close" | Out-Null; exit 1
+}
 function Step($n, $t) { Write-Host ""; Say "[$n/$Steps] $t" 'Cyan' }
 function Fail($t) {
   Say "" ; Say "Setup stopped: $t" 'Red'
@@ -159,7 +166,8 @@ if ((Is-Install 'game') -and -not $Force) {
     if (-not (Is-Install $Game)) { Say "  No $(($Targets | ForEach-Object { $_.Exe }) -join ' and ') in that folder." 'Yellow' }
   }
   Say "  Copying $Game (about 1.9 GB)..."
-  $code = Exec @('robocopy', $Game, (Join-Path $Root 'game'), '/E', '/NFL', '/NDL', '/NJH', '/NP')
+  # /XD: this folder may be inside the install, and would copy into itself.
+  $code = Exec @('robocopy', $Game, (Join-Path $Root 'game'), '/E', '/NFL', '/NDL', '/NJH', '/NP', '/XD', $Root)
   if ($code -ge 8) { Fail "copying the game failed (robocopy exit code $code)." }   # robocopy: <8 is success
 }
 
