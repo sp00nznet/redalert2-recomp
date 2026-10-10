@@ -59,6 +59,13 @@ not on patches to a binary:
   produced, behind the same asset loaders.
 - **Modern input and audio**: raw mouse, rebindable keys, DirectSound replaced
   by a modern backend.
+- **Co-op campaign**: two players through the campaign missions together,
+  which neither game shipped. The likely path is the game's own lockstep
+  multiplayer: a campaign map started as a network game, with the second
+  player given a share of the player's house (or a house of its own allied to
+  it), and the triggers, briefings, movies and win checks that assume one
+  human made to accept two. Still to work out: how the mission's scripts
+  name the player, and what a save means with two.
 
 ## Deferred
 
