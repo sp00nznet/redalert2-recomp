@@ -202,7 +202,8 @@ foreach ($g in $Targets) {
   if ((Test-Path "$($g.Build)\ra2.exe") -and -not $Force) { Say "  Already done (skipping)." }
   else {
     $env:BUILD_DIR = $g.Build; $env:CMAKE_ARGS = "-DRA2_TARGET=$($g.Target)"
-    Run "Compiling" @('cmd', '/c', (Join-Path $Root 'build.cmd'))
+    $buildCmd = Join-Path $Root 'build.cmd'
+    Run "Compiling" @('cmd', '/c', ('call "' + $buildCmd + '"'))
   }
 }
 
