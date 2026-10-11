@@ -334,10 +334,14 @@ unchanged.
 
 The previous attempted radar patch changed a later action byte; hover then
 looked like an order and caused the continuous move-command bug. That patch was
-removed. This iteration remaps the original event flags at handler entry,
-before the game dispatches hover or button events.
+removed. The handler-entry flag swap is confirmed by runtime logs, but the user
+reported that it did not change the click behavior. The radar handler also
+consults live button state, so Modern mode now swaps both the event flags and
+the live left/right button state while a radar button is held. The live state
+swap clears when neither button is held. Classic mode passes both through
+unchanged.
 
-The current build completed after a clean full lift (24,944 functions, zero
-lift errors) and linked to `build/ra2.exe`. The radar behavior still needs
-in-game verification. Check that hovering over the radar issues no orders,
-left-clicking recenters the camera, and right-clicking issues a unit order.
+The current `build/ra2.exe` completed an incremental runtime build and link.
+The radar behavior still needs in-game verification. Check that hovering over
+the radar issues no orders, left-clicking recenters the camera, and right-
+clicking issues a unit order.

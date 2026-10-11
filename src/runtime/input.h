@@ -27,6 +27,7 @@ void  input_live_cursor(int x, int y);
 void  input_live_buttons(int mk);                /* MK_* buttons held */
 int   input_live_button_state(void);              /* current MK_* buttons held */
 void  input_live_map_right_to_left(int on);       /* Modern short right-click maps to left state */
+void  input_live_swap_left_right(int on);         /* Modern minimap event uses the opposite button */
 
 /* A mouse message the host posts to a game window, noted so that under Wine
  * the game thread's hook can tell it from the real mouse (host.c), and the

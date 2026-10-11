@@ -883,8 +883,19 @@ void ra2_modern_radar_trace(uint32_t arg1, uint32_t arg2, uint32_t arg3,
  * so swapping nibbles changes button semantics without turning hover into a
  * click action. */
 uint32_t ra2_modern_radar_event_flags(uint32_t flags) {
-    if (!InterlockedCompareExchange(&g_modern_controls, 0, 0)) return flags;
-    return ((flags & 0x0Fu) << 4) | ((flags & 0xF0u) >> 4);
+    if (!InterlockedCompareExchange(&g_modern_controls, 0, 0)) {
+        input_live_swap_left_right(0);
+        return flags;
+    }
+    input_live_swap_left_right(input_live_button_state() & (MK_LBUTTON | MK_RBUTTON));
+    uint32_t mapped = ((flags & 0x0Fu) << 4) | ((flags & 0xF0u) >> 4);
+    static unsigned trace_count;
+    if (mapped != flags && trace_count < 64) {
+        fprintf(stderr, "[modern-radar-map] raw=%02X mapped=%02X\n", flags & 0xFFu, mapped & 0xFFu);
+        fflush(stderr);
+        trace_count++;
+    }
+    return mapped;
 }
 
 int ra2_modern_consume_left_release(void) {

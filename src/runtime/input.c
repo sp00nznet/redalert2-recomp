@@ -184,13 +184,18 @@ BOOL input_cursor(POINT* p) {
 static int g_live;
 static volatile LONG g_live_buttons;      /* MK_LBUTTON | MK_RBUTTON | MK_MBUTTON */
 static volatile LONG g_live_right_as_left;
+static volatile LONG g_live_swap_left_right;
 void input_live(int on) { g_live = on; }
 /* The mouse buttons as the presenter's window saw them: the game's controls
  * read VK_LBUTTON as well as the messages, and a click the presenter got
  * (from a mouse, a pen, a touch screen or a test driver) has to agree. */
-void input_live_buttons(int mk) { InterlockedExchange(&g_live_buttons, mk); }
+void input_live_buttons(int mk) {
+    InterlockedExchange(&g_live_buttons, mk);
+    if (!(mk & (MK_LBUTTON | MK_RBUTTON))) InterlockedExchange(&g_live_swap_left_right, 0);
+}
 int input_live_button_state(void) { return (int)InterlockedCompareExchange(&g_live_buttons, 0, 0); }
 void input_live_map_right_to_left(int on) { InterlockedExchange(&g_live_right_as_left, on != 0); }
+void input_live_swap_left_right(int on) { InterlockedExchange(&g_live_swap_left_right, on != 0); }
 void input_live_cursor(int x, int y) {
     InterlockedExchange(&g_cx, x);
     InterlockedExchange(&g_cy, y);
@@ -251,7 +256,14 @@ SHORT input_key_state(int vk, SHORT real) {
         int mk = vk == VK_LBUTTON ? MK_LBUTTON : vk == VK_RBUTTON ? MK_RBUTTON : vk == VK_MBUTTON ? MK_MBUTTON : 0;
         if (mk) {
             LONG buttons = g_live_buttons;
-            if (InterlockedCompareExchange(&g_live_right_as_left, 0, 0) && (buttons & MK_RBUTTON))
+            if (InterlockedCompareExchange(&g_live_swap_left_right, 0, 0)) {
+                LONG held = buttons & (MK_LBUTTON | MK_RBUTTON);
+                buttons &= ~(MK_LBUTTON | MK_RBUTTON);
+                if (held & MK_LBUTTON) buttons |= MK_RBUTTON;
+                if (held & MK_RBUTTON) buttons |= MK_LBUTTON;
+            }
+            if (InterlockedCompareExchange(&g_live_right_as_left, 0, 0) &&
+                (g_live_buttons & MK_RBUTTON))
                 buttons |= MK_LBUTTON;       /* retain RButton so native drag-scroll remains active */
             return (buttons & mk) ? (SHORT)0x8000 : 0;
         }
