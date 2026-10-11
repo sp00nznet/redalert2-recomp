@@ -506,7 +506,7 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     AppendMenuA(mouse, MF_STRING | (InterlockedCompareExchange(&g_modern_controls, 0, 0) ? 0 : MF_CHECKED),
                 ID_MOUSE, "Classic");
     AppendMenuA(mouse, MF_STRING | (InterlockedCompareExchange(&g_modern_controls, 0, 0) ? MF_CHECKED : 0),
-                ID_MOUSE + 1, "Modern (C&C 3)");
+                ID_MOUSE + 1, "Modern");
     AppendMenuA(m, MF_POPUP, (UINT_PTR)mouse, "Mouse controls");
 #endif
     AppendMenuA(m, MF_SEPARATOR, 0, NULL);

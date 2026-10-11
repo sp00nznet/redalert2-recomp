@@ -20,12 +20,14 @@ build\ra2.exe --run --classic                     # the original display
 | F10, or right-click beside the picture | the settings menu |
 
 The F10 menu includes **Mouse controls**. **Classic** keeps the original Red
-Alert 2 controls. **Modern (C&C 3)** uses left-click to select, left-click on
-open ground to deselect, and right-click for contextual orders. This option
+Alert 2 controls. **Modern** uses left-click to select, left-click on open
+ground to deselect, and right-click for contextual orders. This option
 preserves the original right-click-drag camera pan. It is experimental,
 applies to Yuri's Revenge (`gamemd.exe`), and is saved as
 `mousecontrols=classic` or `mousecontrols=modern` in `ra2.ini`. Active
 placement and order modes keep their original right-click cancellation.
+The implementation notes and test ledger are in
+[modern-mouse-controls.md](modern-mouse-controls.md).
 
 ## Settings
 

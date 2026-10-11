@@ -1,8 +1,9 @@
-# Modern mouse controls: feasibility plan
+# Modern mouse controls
 
-**Status:** the battlefield Modern-mode prototype is implemented and remains
-in the source tree. Minimap remapping is withdrawn; this section records the
-source-only investigation for a safer replacement.
+**Status:** the optional Modern mode is implemented for the Yuri's Revenge
+presenter build. The user reports that the latest minimap routing appears to
+work; further in-game checks are ongoing. This document records the target,
+implementation, investigation, and manual test cases.
 
 ## Goal
 
@@ -130,7 +131,7 @@ game; “pending” means the latest code change still needs an in-game check.
 | Left-click a naval yard with a selected ship | Do not issue the naval-yard repair order; keep left-click semantics for selection/deselection. | It initially accepted a left-click repair order. The user later reported “Naval yard ok.” **Fixed and verified.** |
 | Double-left-click a deployable unit | Run its deploy action, preserving the original double-click behavior. | The current left-click filter suppresses non-selection actions on objects, so it may block deploy. **Requested for the next iteration; not yet verified.** |
 | Double-left-click a building | Make that building primary, preserving the original double-click behavior. | **Requested for the next iteration; not yet verified** with Modern controls. |
-| Click or hover the minimap with one selected land or naval unit | Left-click recenters the camera; right-click issues the unit order. Hovering alone must not issue an order. | Left-click initially issued Move and right-click recentered the camera. The attempted radar route swap caused continuous Move orders on hover and has been withdrawn. **Original minimap behavior remains; modern remapping needs a safer input seam.** |
+| Click or hover the minimap with one selected land or naval unit | Left-click recenters the camera; right-click issues the unit order. Hovering alone must not issue an order. | The initial event-register swap had no effect because later code read the original stack argument. Rewriting that argument fixed the routing. The user reports the latest build appears to work; further playtesting is ongoing. |
 | Left-click a turreted building | Follow the C&C3-style left-click selection/deselection behavior; reserve contextual attacks for right-click. | The user reported a left-click was accepted on a turreted building and right-click also worked. They later could not test attacking an enemy building, so the target ownership and resulting action remain unclear. **Pending clarification by in-game retest.** |
 | Short right-click | Issue the contextual order. | **Verified working.** |
 | Right-click drag | Pan the camera and preserve the current selection. | The initial remap treated the drag like a left drag. The handoff was changed to restore native camera pan; pan then worked, including repeated quick drags. A later test found that ending a pan cleared selection. The latest build suppresses that release deselection. **Pan verified; selection preservation pending in-game verification.** |
@@ -138,60 +139,27 @@ game; “pending” means the latest code change still needs an in-game check.
 | Two quick right-drag pans | Start each pan reliably. | A second quick drag sometimes failed to register during the drift investigation. The later handoff fix was reported to support quick consecutive drags. **Reported resolved.** |
 | Special placement/order modes and interface clicks | Keep their original cancel and interface behavior. | The user reported the listed checks worked. **Verified for the cases tested**, not every mode or interface target. |
 
-## Minimap remapping: safer route under investigation
+## Minimap input: investigation and fix
 
-The original minimap behavior still needs to be inverted in Modern mode:
-left-click should recenter the camera and right-click should issue the order.
-The first attempt patched the radar handler's action flags directly. It was
-withdrawn after the user observed repeated Move orders from simply hovering the
-radar, and an earlier version crashed on hover.
+The minimap has a separate radar event handler at `0x006539D0`, identified by
+the local RTTI map as `RTacticalClass@RadarClass`. Tracing showed left-button
+event flags `0x01` and `0x04`, right-button flags `0x10` and `0x40`, and the
+hover flag `0x88`. Swapping the low and high nibbles leaves hover unchanged.
 
-The generated function at `0x006539D0` is identified by the local RTTI map as
-`RTacticalClass@RadarClass`. Its body uses one byte argument to select input
-paths and a third byte argument whose `0x08` path calls `ConvertAction`
-(`0x004AAE90`) and whose `0x04` path calls `LeftMouseButtonUp`
-(`0x004AB9B0`). This handler also performs pointer/cell work, and the hover
-failure demonstrates that these flag paths cannot be swapped unconditionally.
-The current source does not yet establish which caller-side event distinguishes
-a real mouse down/up from a hover refresh, so the exact flag meanings remain
-unconfirmed.
+The first patch changed the event byte in a register, but later branches in
+the same lifted function read the original byte again from the stack argument.
+So the logged swap ran while the handler still chose actions from the
+unmodified flags. The source-controlled patch in `run_lift.py` now writes the
+mapped byte back to that argument as well. This keeps the radar's later
+dispatch decisions consistent with the remap and leaves the hover flag intact.
 
-The likely safe design is to scope any mapping to a genuine button event at the
-radar input route, leaving hover processing and battlefield input untouched.
-The presenter already sees concrete `WM_*BUTTONDOWN/UP` messages and records
-the latest button state, while the radar handler is a virtual method specific
-to the radar. A global screen-coordinate test in the presenter would need a
-reliable radar rectangle across resolutions and layouts; current source
-evidence does not yet provide that hit-test. A single global “button held” bit
-is also insufficient by itself because the game may process queued messages
-after the live state has changed.
-
-Before implementing the replacement, trace how the game dispatches a posted
-button message to `RTacticalClass` and decode its event/flag arguments. If the
-dispatch can be associated with the exact queued mouse message, carry that
-event identity through the radar handler and remap only its button action. If
-the radar callback is instead polled every frame, find the event latch used by
-the base `MapClass`/`MouseClass` input path and gate the remap there. In either
-case, hover-only calls must preserve their original flags. The acceptance
-checks are: hovering with a unit selected never issues an order; left-clicking
-the radar recenters; right-clicking it orders; and battlefield right-drag
-continues to pan without changing selection.
-
-This is a viable next investigation seam, not yet a proven patch recipe. No
-minimap behavior remap is active. The latest build adds only a bounded trace
-to the radar handler; its behavior has not yet been checked in game.
-
-A previous build included the minimap route swap and right-drag selection
-preservation fix. The user reported an immediate hover crash, then continuous
-Move orders from minimap hover. The radar swap hook was withdrawn. The user
-tested the rollback build and confirmed the minimap returned to its original
-behavior. The current executable was rebuilt from upstream commit `8e0a693`
-with that behavior intact and the bounded `[modern-radar]` trace enabled in
-Modern mode. To collect the input evidence, select a unit, hover over the radar
-without clicking, then left-click and right-click it; share the resulting
-`[modern-radar]` console lines. Right-drag selection preservation remains
-unverified in game. Deploy on double-left-click, primary-building double-click,
-and the turreted enemy-building case also remain to be checked.
+The user tested the resulting build and reported that the minimap behavior
+appears to work. Further playtesting should confirm that hover never issues an
+order, left-click recenters the camera, right-click issues the unit order, and
+right-drag still pans without clearing selection. Earlier attempts caused a
+hover crash or repeated Move orders; those failures led to the current
+callback-argument fix. Bounded `[modern-radar]` diagnostics remain available
+while these checks continue.
 
 ## Lifted battlefield path found
 
