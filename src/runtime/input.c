@@ -183,11 +183,14 @@ BOOL input_cursor(POINT* p) {
  * keyboard, which is the presenter's (same process, same desktop). */
 static int g_live;
 static volatile LONG g_live_buttons;      /* MK_LBUTTON | MK_RBUTTON | MK_MBUTTON */
+static volatile LONG g_live_right_as_left;
 void input_live(int on) { g_live = on; }
 /* The mouse buttons as the presenter's window saw them: the game's controls
  * read VK_LBUTTON as well as the messages, and a click the presenter got
  * (from a mouse, a pen, a touch screen or a test driver) has to agree. */
 void input_live_buttons(int mk) { InterlockedExchange(&g_live_buttons, mk); }
+int input_live_button_state(void) { return (int)InterlockedCompareExchange(&g_live_buttons, 0, 0); }
+void input_live_map_right_to_left(int on) { InterlockedExchange(&g_live_right_as_left, on != 0); }
 void input_live_cursor(int x, int y) {
     InterlockedExchange(&g_cx, x);
     InterlockedExchange(&g_cy, y);
@@ -246,7 +249,12 @@ static volatile LONG g_mods, g_lb_reads;
 SHORT input_key_state(int vk, SHORT real) {
     if (!g_nev && g_live) {
         int mk = vk == VK_LBUTTON ? MK_LBUTTON : vk == VK_RBUTTON ? MK_RBUTTON : vk == VK_MBUTTON ? MK_MBUTTON : 0;
-        if (mk) return (g_live_buttons & mk) ? (SHORT)0x8000 : 0;
+        if (mk) {
+            LONG buttons = g_live_buttons;
+            if (InterlockedCompareExchange(&g_live_right_as_left, 0, 0) && (buttons & MK_RBUTTON))
+                buttons |= MK_LBUTTON;       /* retain RButton so native drag-scroll remains active */
+            return (buttons & mk) ? (SHORT)0x8000 : 0;
+        }
         return (SHORT)((GetAsyncKeyState(vk) & 0x8000) | (real & 1));
     }
     if (!g_nev) return real;

@@ -232,14 +232,59 @@ HD_VOXEL_PATCHES_GAME = {
 }
 
 
+def modern_mouse_patches():
+    """Opt-in modern battlefield mouse behavior for Yuri's Revenge."""
+    return {
+        # The game has already read the Windows message here. Route right
+        # presses through left-button bookkeeping only when no active
+        # placement/order mode needs its original right-up cancellation.
+        0x00693107: (
+            '{ extern uint32_t ra2_modern_mouse_message(uint32_t, int); '
+            'int special = MEM32(esi + 0x11A4) != 0 || '
+            'MEM8(esi + 0x11B0) || MEM8(esi + 0x11B1) || MEM8(esi + 0x11B2) || '
+            'MEM8(esi + 0x11B3) || MEM8(esi + 0x11B4) || MEM32(esi + 0x11B8) != 0xFFFFFFFFu; '
+            'eax = ra2_modern_mouse_message(eax, special); } '
+            '/* optional F10 Modern mouse controls */'),
+        # This radar routine also runs for hover refreshes. Capture its flag
+        # arguments and the live button state before changing its click route.
+        0x006539D3: (
+            '{ extern void ra2_modern_radar_trace(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t); '
+            'extern uint32_t ra2_modern_radar_event_flags(uint32_t); '
+            'ra2_modern_radar_trace(MEM32(esp + 0x48), MEM32(esp + 0x4C), '
+            'MEM32(esp + 0x50), MEM32(esp + 0x54), MEM32(esp + 0x58), ecx); '
+            'SET_LO8(edx, ra2_modern_radar_event_flags(LO8(edx))); } '
+            '/* swap radar left/right event flags in Modern mode */'),
+        # In Modern mode, plain left-clicks select objects or clear the
+        # selection on open ground; contextual orders remain on right-click.
+        0x00693271: (
+            '{ extern uint32_t ra2_modern_left_click_action(uint32_t, uint32_t, int); '
+            'int special = MEM32(esi + 0x11A4) != 0 || '
+            'MEM8(esi + 0x11B0) || MEM8(esi + 0x11B1) || MEM8(esi + 0x11B2) || '
+            'MEM8(esi + 0x11B3) || MEM8(esi + 0x11B4) || MEM32(esi + 0x11B8) != 0xFFFFFFFFu; '
+            'uint32_t action = ra2_modern_left_click_action(eax, MEM32(esp + 0x30), special); '
+            'if (action == 0xFFFFFFFFu) { RECOMP_CALL(sub_0048DC90); RECOMP_FLAGS_IN(); eax = 0; } '
+            'else eax = action; } '
+            '/* optional F10 Modern mouse controls */'),
+        # The original right-up cleanup clears selection after camera pan.
+        0x004AAE6E: (
+            '@replace:{ extern int ra2_modern_consume_right_drag_release(void); '
+            'if (!ra2_modern_consume_right_drag_release()) RECOMP_CALL(sub_0048DC90); } '
+            '/* optional F10 Modern mouse controls */'),
+    }
+
+
 def apply_patches(body, patches):
     """Add each patch's C after the line that lifts its instruction."""
     for va, c in patches.items():
         tag = '/* 0x%08X:' % va
         k = body.find(tag)
         if k != -1:
+            start = body.rfind('\n', 0, k) + 1
             e = body.index('\n', k)
-            body = body[:e + 1] + '    ' + c + '\n' + body[e + 1:]
+            if c.startswith('@replace:'):
+                body = body[:start] + '    ' + c[len('@replace:'):] + '\n' + body[e + 1:]
+            else:
+                body = body[:e + 1] + '    ' + c + '\n' + body[e + 1:]
     return body
 
 
@@ -261,7 +306,8 @@ def targets():
         'gamemd': dict(exe=EXE, catalog=CATALOG, seeds=SEEDS, out=OUT, stats=STATS,
                        run_seeds=RUN_SEEDS, hooks=HOOKS, exe_name='gamemd.exe', ini_name='RA2MD.INI',
                        title="Yuri's Revenge", game_frame=0x00A8ED84, stamp=0x3BDF544E,
-                       patches=lambda code, cs: {**sidebar_rows_patches(code, cs), **HD_VOXEL_PATCHES}),
+                       patches=lambda code, cs: {**sidebar_rows_patches(code, cs), **HD_VOXEL_PATCHES,
+                                                 **modern_mouse_patches()}),
         'game': dict(exe=os.path.join(_HERE, 'game', 'game.exe'),
                      catalog=os.path.join(_HERE, 'work', 'game', 'functions.json'),
                      seeds=os.path.join(_HERE, 'work', 'game', 'rtti_seeds.json'),

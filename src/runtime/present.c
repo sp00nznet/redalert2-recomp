@@ -106,6 +106,14 @@ static struct {
 
 static int g_mode;                       /* index into k_mode_names */
 static int g_bars = 1;                   /* the bars beside a letterboxed picture: 0 black, 1 blurred */
+static volatile LONG g_modern_controls;  /* opt-in battlefield semantics */
+static int g_modern_right_click;         /* set while a routed right-up is resolved */
+static int g_modern_right_gesture;       /* right-down is awaiting click vs. drag */
+static int g_modern_right_pending;        /* synthetic left-up sent, native right-down next */
+static int g_modern_right_drag;          /* native right-drag camera pan is active */
+static int g_modern_suppress_left_release; /* the handoff release must not issue a click */
+static int g_modern_suppress_right_deselect; /* a pan release must not clear selection */
+static POINT g_modern_right_origin;
 static volatile LONG g_gw = 800, g_gh = 600;   /* the game's picture, last frame */
 static RECT g_dst;                       /* where it is drawn in the client area */
 static int g_fullscreen;
@@ -423,6 +431,8 @@ static void settings_save(HWND hw) {
     WritePrivateProfileStringA("present", "scale", k_mode_names[g_mode], g_ini);
     WritePrivateProfileStringA("present", "bars", g_bars ? "blur" : "black", g_ini);
     WritePrivateProfileStringA("present", "fullscreen", g_fullscreen ? "1" : "0", g_ini);
+    WritePrivateProfileStringA("present", "mousecontrols",
+        InterlockedCompareExchange(&g_modern_controls, 0, 0) ? "modern" : "classic", g_ini);
     WritePrivateProfileStringA("present", hdvox_key(), ra2_vox_hd_show ? "1" : "0", g_ini);
     if (hw && !g_fullscreen && !IsIconic(hw)) {
         RECT r;
@@ -464,13 +474,17 @@ static void set_game_resolution(int w, int h) {
     fprintf(stderr, "[present] game resolution %dx%d (the next game opens at it)\n", w, h);
 }
 
-enum { ID_SCALE = 100, ID_BARS = 200, ID_FULL = 300, ID_RES = 400, ID_HDVOX = 500, ID_MOD = 600 };
+enum { ID_SCALE = 100, ID_BARS = 200, ID_FULL = 300, ID_RES = 400, ID_HDVOX = 500,
+       ID_MOD = 600, ID_MOUSE = 700 };
 #define MAX_MENU_MODS 64
 
 static void settings_menu(HWND hw) {             /* at the mouse */
     POINT at;
     HMENU m = CreatePopupMenu(), sc = CreatePopupMenu(), bars = CreatePopupMenu(), res = CreatePopupMenu();
     HMENU mods = CreatePopupMenu();
+#ifdef RA2_TARGET_GAMEMD
+    HMENU mouse = CreatePopupMenu();
+#endif
     static char mod_names[MAX_MENU_MODS][128];
     int nmods = mods_list(mod_names, MAX_MENU_MODS);
     static const char* const scale_label[NMODES] = { "Sharp (default)", "Smooth", "CRT", "Nearest", "Integer" };
@@ -488,6 +502,13 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     AppendMenuA(m, MF_POPUP, (UINT_PTR)bars, "Bars beside the picture");
     AppendMenuA(m, MF_STRING | (g_fullscreen ? MF_CHECKED : 0), ID_FULL, "Fullscreen\tF11");
     AppendMenuA(m, MF_STRING | (ra2_vox_hd_show ? MF_CHECKED : 0), ID_HDVOX, "HD vehicles (voxels at 2x)");
+#ifdef RA2_TARGET_GAMEMD
+    AppendMenuA(mouse, MF_STRING | (InterlockedCompareExchange(&g_modern_controls, 0, 0) ? 0 : MF_CHECKED),
+                ID_MOUSE, "Classic");
+    AppendMenuA(mouse, MF_STRING | (InterlockedCompareExchange(&g_modern_controls, 0, 0) ? MF_CHECKED : 0),
+                ID_MOUSE + 1, "Modern (C&C 3)");
+    AppendMenuA(m, MF_POPUP, (UINT_PTR)mouse, "Mouse controls");
+#endif
     AppendMenuA(m, MF_SEPARATOR, 0, NULL);
     AppendMenuA(m, MF_POPUP, (UINT_PTR)res, "Game resolution (next game)");
     /* the mods in mods\<game>: choosing one restarts the game with it (mods.c) */
@@ -503,6 +524,10 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     else if (cmd == ID_BARS || cmd == ID_BARS + 1) g_bars = cmd - ID_BARS;
     else if (cmd == ID_FULL) set_fullscreen(hw, !g_fullscreen);
     else if (cmd == ID_HDVOX) ra2_vox_hd_show = !ra2_vox_hd_show;  /* takes effect next frame */
+#ifdef RA2_TARGET_GAMEMD
+    else if (cmd == ID_MOUSE || cmd == ID_MOUSE + 1)
+        InterlockedExchange(&g_modern_controls, cmd - ID_MOUSE);
+#endif
     else if (cmd >= ID_RES && cmd < ID_RES + NRES) set_game_resolution(k_res[cmd - ID_RES][0], k_res[cmd - ID_RES][1]);
     else if (cmd >= ID_MOD && cmd <= ID_MOD + nmods) {
         const char* name = cmd == ID_MOD ? "" : mod_names[cmd - ID_MOD - 1];
@@ -758,6 +783,8 @@ void present_start(int mode, int fullscreen) {
     g_mode = present_mode_from_name(v) >= 0 ? present_mode_from_name(v) : 0;
     GetPrivateProfileStringA("present", "bars", "blur", v, sizeof v, g_ini);
     g_bars = _stricmp(v, "black") != 0;
+    GetPrivateProfileStringA("present", "mousecontrols", "classic", v, sizeof v, g_ini);
+    InterlockedExchange(&g_modern_controls, !_stricmp(v, "modern"));
     if (fullscreen < 0) fullscreen = GetPrivateProfileIntA("present", "fullscreen", 0, g_ini);
     if (!ra2_vox_hd_on)                     /* --hd-voxels forces it */
         ra2_vox_hd_show = GetPrivateProfileIntA("present", hdvox_key(), !host_under_wine(), g_ini);
@@ -765,4 +792,122 @@ void present_start(int mode, int fullscreen) {
     if (mode >= 0) g_mode = mode;
     input_live(1);
     CloseHandle(CreateThread(NULL, 0, present_thread, (LPVOID)(intptr_t)fullscreen, 0, NULL));
+}
+
+/* Called only from the lifted battlefield message dispatcher. A short right
+ * click reuses the game's left-click action resolver. Once the pointer crosses
+ * the Windows drag threshold, keep the native right-button path for camera pan. */
+uint32_t ra2_modern_mouse_message(uint32_t message, int special_mode_active) {
+    g_modern_right_click = 0;
+    if (!InterlockedCompareExchange(&g_modern_controls, 0, 0) || special_mode_active) {
+        g_modern_right_gesture = 0;
+        g_modern_right_pending = 0;
+        g_modern_right_drag = 0;
+        g_modern_suppress_left_release = 0;
+        g_modern_suppress_right_deselect = 0;
+        input_live_map_right_to_left(0);
+        return message;
+    }
+    if (message == 0x0204u) {
+        g_modern_right_gesture = 1;
+        g_modern_right_pending = 0;
+        g_modern_right_drag = 0;
+        g_modern_suppress_left_release = 0;
+        g_modern_suppress_right_deselect = 0;
+        GetCursorPos(&g_modern_right_origin);
+        input_live_map_right_to_left(1);
+        return 0x0201u;                     /* WM_RBUTTONDOWN -> WM_LBUTTONDOWN */
+    }
+    if (message == 0x0200u && g_modern_right_gesture && !g_modern_right_drag) {
+        if (g_modern_right_pending) {
+            g_modern_right_pending = 0;
+            g_modern_right_drag = 1;
+            return 0x0204u;                 /* start native pan after the left release was handled */
+        }
+        POINT point;
+        if (GetCursorPos(&point)) {
+            int dx = GetSystemMetrics(SM_CXDRAG);
+            int dy = GetSystemMetrics(SM_CYDRAG);
+            if (dx < 1) dx = 4;
+            if (dy < 1) dy = 4;
+            if (point.x - g_modern_right_origin.x >= dx ||
+                g_modern_right_origin.x - point.x >= dx ||
+                point.y - g_modern_right_origin.y >= dy ||
+                g_modern_right_origin.y - point.y >= dy) {
+                g_modern_right_pending = 1;
+                g_modern_suppress_left_release = 1;
+                input_live_map_right_to_left(0);
+                return 0x0202u;             /* release the synthetic left-down without a click */
+            }
+        }
+        return message;
+    }
+    if (message == 0x0205u) {
+        int had_gesture = g_modern_right_gesture;
+        if (!had_gesture) return message;
+        int was_pending = g_modern_right_pending;
+        int was_drag = g_modern_right_drag;
+        g_modern_right_gesture = 0;
+        g_modern_right_pending = 0;
+        g_modern_right_drag = 0;
+        g_modern_suppress_right_deselect = was_drag;
+        input_live_map_right_to_left(0);
+        if (was_drag) return message;         /* preserve native right-up */
+        if (was_pending) return 0;             /* threshold crossed before a native pan could start */
+        g_modern_right_click = 1;
+        return 0x0202u;                     /* WM_RBUTTONUP -> WM_LBUTTONUP */
+    }
+    return message;
+}
+
+/* Temporary trace: the radar callback also runs during hover refreshes.
+ * Log only changed event flags/button state and cap output for readability. */
+void ra2_modern_radar_trace(uint32_t arg1, uint32_t arg2, uint32_t arg3,
+                            uint32_t arg4, uint32_t arg5, uint32_t self) {
+    static uint32_t last1 = 0xFFFFFFFFu, last5 = 0xFFFFFFFFu;
+    static int last_buttons = -1;
+    static unsigned count;
+    int buttons;
+    if (!InterlockedCompareExchange(&g_modern_controls, 0, 0) || count >= 128) return;
+    buttons = input_live_button_state();
+    if (arg1 == last1 && arg5 == last5 && buttons == last_buttons) return;
+    last1 = arg1, last5 = arg5, last_buttons = buttons;
+    fprintf(stderr, "[modern-radar] self=%08X args=%08X,%08X,%08X,%08X,%08X buttons=%02X\n",
+            self, arg1, arg2, arg3, arg4, arg5, buttons);
+    fflush(stderr);
+    count++;
+}
+
+/* RadarClass encodes left-button events in the low flag nibble and
+ * right-button events in the high nibble. Hover's 0x88 flag is symmetric,
+ * so swapping nibbles changes button semantics without turning hover into a
+ * click action. */
+uint32_t ra2_modern_radar_event_flags(uint32_t flags) {
+    if (!InterlockedCompareExchange(&g_modern_controls, 0, 0)) return flags;
+    return ((flags & 0x0Fu) << 4) | ((flags & 0xF0u) >> 4);
+}
+
+int ra2_modern_consume_left_release(void) {
+    int consume = g_modern_suppress_left_release;
+    g_modern_suppress_left_release = 0;
+    return consume;
+}
+
+uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target, int special) {
+    if (ra2_modern_consume_left_release()) return 0;
+    if (!InterlockedCompareExchange(&g_modern_controls, 0, 0) ||
+        g_modern_right_click || special) return action;
+
+    if (!target) {
+        return action == 7u || action == 8u ? action : 0xFFFFFFFFu;
+    }
+
+    if (action == 1u) return 7u;
+    return action == 7u || action == 8u ? action : 0u;
+}
+
+int ra2_modern_consume_right_drag_release(void) {
+    int consume = g_modern_suppress_right_deselect;
+    g_modern_suppress_right_deselect = 0;
+    return consume;
 }
