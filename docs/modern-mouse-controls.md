@@ -92,7 +92,7 @@ Manual in-game verification:
 | Left-click a naval yard with a selected ship | Does not trigger repair. |
 | Issue an order with right-click | Move verified; other target types, including turreted enemy buildings, need more coverage. |
 | Left-click or hover the minimap; right-click the minimap | Recenters, issues an order, and does not order on hover. |
-| Right-click drag, including repeated drags and pan direction | Camera pan verified; preserving selection on release still needs confirmation. |
+| Right-click drag, including repeated drags and pan direction | Camera pans correctly and preserves selection. Verified. |
 | Double-left-click a deployable unit or building | Requested behavior; not yet verified in Modern mode. |
 | Special placement/order modes and interface clicks | Verified for the reported cases; not exhaustive. |
 
