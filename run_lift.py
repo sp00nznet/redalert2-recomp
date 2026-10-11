@@ -294,6 +294,34 @@ def modern_mouse_patches():
     }
 
 
+def queue_five_patches():
+    """Shift-click a Yuri's Revenge sidebar cameo to enqueue five productions."""
+    event_count = 0x00A802C8
+    get_async_key_state = 0x007E13E0
+    time_get_time = 0x007E1530
+
+    def after_production_event():
+        return (
+            '{ extern int ra2_queue_five_append(uint32_t, uint32_t); '
+            'uint32_t _queue_five_event = eax; '
+            'PUSH32(esp, 0x10u); '
+            'RECOMP_ICALL(MEM32(0x%08Xu)); RECOMP_FLAGS_IN(); '
+            'if (eax & 0x8000u) { uint32_t _queue_five_added = 0; '
+            'while (_queue_five_added < 4u && MEM32(0x%08Xu) < 0x80u) { '
+            'RECOMP_ICALL(MEM32(0x%08Xu)); RECOMP_FLAGS_IN(); '
+            'if (!ra2_queue_five_append(_queue_five_event, eax)) break; '
+            '++_queue_five_added; } } '
+            'eax = _queue_five_event; } '
+            '/* Queue Five: Shift-click adds four matching events before the original. */'
+        ) % (get_async_key_state, event_count, time_get_time)
+
+    return {
+        # Both normal production branches in the YR sidebar cameo handler.
+        0x006AB511: after_production_event(),
+        0x006AB76E: after_production_event(),
+    }
+
+
 def apply_patches(body, patches):
     """Add each patch's C after the line that lifts its instruction."""
     for va, c in patches.items():
@@ -328,7 +356,7 @@ def targets():
                        run_seeds=RUN_SEEDS, hooks=HOOKS, exe_name='gamemd.exe', ini_name='RA2MD.INI',
                        title="Yuri's Revenge", game_frame=0x00A8ED84, stamp=0x3BDF544E,
                        patches=lambda code, cs: {**sidebar_rows_patches(code, cs), **HD_VOXEL_PATCHES,
-                                                 **modern_mouse_patches()}),
+                                                 **modern_mouse_patches(), **queue_five_patches()}),
         'game': dict(exe=os.path.join(_HERE, 'game', 'game.exe'),
                      catalog=os.path.join(_HERE, 'work', 'game', 'functions.json'),
                      seeds=os.path.join(_HERE, 'work', 'game', 'rtti_seeds.json'),
