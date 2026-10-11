@@ -18,11 +18,12 @@ Red Alert 2 and the native Linux host are not wired to this option.
 | Left-drag | Box-select. |
 | Left-click open battlefield ground | Clear selection without issuing Move. |
 | Right-click a battlefield cell or object | Issue the context-sensitive order. |
+| Right-click a unit | Issue its contextual order if the game offers one; never select the clicked unit or change the current selection. |
 | Right-drag | Pan the camera using the original game behavior. |
 | Left-click the minimap | Center the camera on that location. |
 | Right-click the minimap | Issue the selected units' order at that location. |
-| Double-right-click a deployable unit | Deploy it (keeps the existing behavior). |
-| Double-right-click a building | Make it the primary building (keeps the existing behavior). |
+| Right-click an already selected deployable unit | Deploy it. |
+| Right-click an already selected building | Make it the primary building. |
 | Double-left-click a unit | Select all visible units of the same type, like one press of `T`. |
 | Shift + left-drag a selection rectangle | Add the units in the rectangle to the current selection. |
 | Left-click a unit already in a group selection | Replace the group with that unit. |
@@ -32,8 +33,12 @@ The F10 shortcut on the presenter bars and menu/interface clicks are not
 remapped.
 
 These are explicit Modern-mode choices. Deploy and primary-building selection
-remain on double-right-click. Double-left-click is reserved for selecting
-same-type units. Same-type selection and additive box selection are implemented;
+remain on right-click when the object is already selected. A double-right-click
+on an unselected deployable unit or building no longer triggers the old
+shortcut because its first click no longer selects the object. The user accepts
+that tradeoff for now; no replacement shortcut is planned.
+Double-left-click is reserved for selecting same-type units. Same-type
+selection and additive box selection are implemented;
 their in-game behavior is under follow-up after inconsistent results. Selecting
 one unit from an existing group is a Modern-mode improvement over the base game.
 
@@ -55,6 +60,20 @@ when a placement or order mode needs its native right-up behavior. If the
 right-button gesture crosses the Windows drag threshold, the original
 right-drag camera pan continues.
 
+A short Modern right-click must not change the selection. The mouse-up hook
+at `0x00693271` runs after `DecideAction`. When a routed right-click resolves
+to `None` (0), `Select` (7) or `ToggleSelect` (8), the hook passes `None` and
+also clears the target slot that `LeftMouseButtonUp` receives. Replacing the
+action alone is not enough: `LeftMouseButtonUp` still selects a selectable,
+unselected target when the action is `None` (branch at `0x004ABDE1`). With no
+action and no target, it takes its plain exit at `0x004AC294`. Every other
+action, such as Move (1), passes through unchanged. The synthetic left release
+that hands a right-drag to the native camera pan is ignored in the same way,
+so a pan that starts over a unit does not select it. The mouse-down side
+needs no guard: `ConvertAction` and slot 45 only update the cursor and arm
+drag-selection. The user reports that the fix appears to work in game; the
+remaining right-click cases below still need coverage.
+
 The left-click patch at `0x00693271` uses the game's resolved action and target.
 When an unmodified left-click on open ground resolves to `Move`, it calls
 `sub_0048DC90` to clear selection instead of issuing that move. Unit/object
@@ -69,6 +88,7 @@ The relevant lifted `DisplayClass` path is:
 | `0x00692300` | `ProcessClickCoords` | Resolve screen coordinates to map cell and target. |
 | `0x00692610` | `DecideAction` | Classify the cell or object into an `Action`. |
 | `0x004AAE90` | `ConvertAction` | Update cursor/action presentation. |
+| `0x004AC310` | — (vtable slot 45) | On press, record the press point and arm drag-selection. |
 | `0x004AC380` | `LeftMouseButtonDown` (vtable slot 47) | Update press and drag-selection state. |
 | `0x004AB9B0` | `LeftMouseButtonUp` (slot 48) | Execute the resolved action. |
 | `0x004AAD30` | `RightMouseButtonUp` (slot 49) | Cancel active modes; its ordinary fallback clears selection. |
@@ -78,8 +98,8 @@ Modern double-left-click on a unit posts the game's `T` key after the click is
 handled, reusing the game's same-type selection rules. The lifted action hook
 checks the target object's vtable to limit this to unit, infantry, and aircraft
 objects; it does not depend on the game's resolved action, which can vary with
-the current selection. Double-right-click retains the game's deploy and
-primary-building actions.
+the current selection. The accepted unselected double-right-click tradeoff is
+described above.
 
 When a plain left-click targets a unit that is already in a multi-unit
 selection, the click hook checks membership in the game's selected-object
@@ -120,9 +140,10 @@ Manual in-game verification:
 | Left-click a naval yard with a selected ship | Does not trigger repair. |
 | Left-click an enemy turreted building with an attacking unit selected | Does not issue an attack order. Verified. |
 | Issue an order with right-click | Move verified; other target types still need more coverage. |
+| Right-click a unit without selecting it; start a right-drag over a unit without changing selection | User reports the fix appears to work. The full case matrix remains unverified. |
 | Left-click or right-click the minimap | Left-click recenters; right-click issues an order. |
 | Right-click drag, including repeated drags and pan direction | Camera pans correctly and preserves selection. Verified. |
-| Double-right-click a deployable unit to deploy; double-right-click a building to make it primary | Existing behavior; preserve. |
+| Right-click an already selected deployable unit/building; double-right-click an unselected one | User accepts that unselected double-right-click no longer deploys/makes primary for now. Selected-target behavior still needs coverage. |
 | Double-left-click a unit to select visible units of its type | Latest report: seems to work; consistency still needs more coverage. |
 | Shift + left-drag a selection rectangle | Verified by the user: the existing selection is preserved and boxed units are added, with Shift held before or after dragging starts. |
 | Left-click a unit already in a group selection | Verified: replaces the group with the clicked unit. |

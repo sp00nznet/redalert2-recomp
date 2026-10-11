@@ -254,6 +254,9 @@ def modern_mouse_patches():
             '/* swap radar left/right event flags in Modern mode */'),
         # In Modern mode, plain left-clicks select objects or clear the
         # selection on open ground; contextual orders remain on right-click.
+        # The mouse-up handler (0x004AB9B0) still selects a selectable target
+        # when the action is None, so a click that must not touch the
+        # selection (0xFFFFFFFE) also clears the target slot it reads.
         0x00693271: (
             '{ extern uint32_t ra2_modern_left_click_action(uint32_t, uint32_t, uint32_t, int, uint32_t, int); '
             'int special = MEM32(esi + 0x11A4) != 0 || '
@@ -267,6 +270,7 @@ def modern_mouse_patches():
             'if (MEM32(selected_data + i * 4u) == target) { selected_in_group = 1; break; } '
             'uint32_t action = ra2_modern_left_click_action(eax, target, vtable, selected_in_group, selection_count, special); '
             'if (action == 0xFFFFFFFFu) { RECOMP_CALL(sub_0048DC90); RECOMP_FLAGS_IN(); eax = 0; } '
+            'else if (action == 0xFFFFFFFEu) { MEM32(esp + 0x30) = 0; eax = 0; } '
             'else eax = action; } '
             '/* optional F10 Modern mouse controls */'),
         # The original right-up cleanup clears selection after camera pan.

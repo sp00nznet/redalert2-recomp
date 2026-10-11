@@ -902,15 +902,34 @@ int ra2_modern_consume_left_release(void) {
     return consume;
 }
 
+/* Results of ra2_modern_left_click_action besides the game's own action
+ * values. The mouse-up patch at 0x00693271 in run_lift.py tests for these
+ * exact values.
+ *
+ * Action None (0) does not make the mouse-up handler (0x004AB9B0) a no-op:
+ * with a selectable, unselected target it still takes the select branch
+ * (0x004ABDE1). A click that must not select anything therefore passes None
+ * with no target at all, which leaves the handler through its plain exit. */
+#define MODERN_CLICK_CLEAR_SELECTION 0xFFFFFFFFu /* clear the selection, then None */
+#define MODERN_CLICK_IGNORE          0xFFFFFFFEu /* None with the target dropped */
+
 uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target,
                                       uint32_t target_vtable, int selected_in_group,
                                       uint32_t selection_count, int special) {
-    if (ra2_modern_consume_left_release()) return 0;
+    /* The release that hands a right-drag to the native pan is not a click. */
+    if (ra2_modern_consume_left_release()) return MODERN_CLICK_IGNORE;
     LONG double_click_at = InterlockedExchange(&g_modern_left_double_click_at, 0);
     int double_click = double_click_at &&
         (DWORD)(GetTickCount() - (DWORD)double_click_at) <= GetDoubleClickTime();
-    if (!InterlockedCompareExchange(&g_modern_controls, 0, 0) ||
-        g_modern_right_click || special) return action;
+    if (!InterlockedCompareExchange(&g_modern_controls, 0, 0) || special)
+        return action;
+
+    if (g_modern_right_click) {
+        /* A routed right-click issues contextual orders only. Select (7) and
+         * ToggleSelect (8) would change the selection, and None (0) can too
+         * (see MODERN_CLICK_IGNORE). Every other action passes through. */
+        return action == 0u || action == 7u || action == 8u ? MODERN_CLICK_IGNORE : action;
+    }
 
     if (double_click &&
         (target_vtable == 0x007F5C70u || /* UnitClass */
@@ -932,7 +951,7 @@ uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target,
     }
 
     if (!target) {
-        return action == 7u || action == 8u ? action : 0xFFFFFFFFu;
+        return action == 7u || action == 8u ? action : MODERN_CLICK_CLEAR_SELECTION;
     }
 
     if (action == 1u) return 7u;
