@@ -109,6 +109,8 @@ static int g_bars = 1;                   /* the bars beside a letterboxed pictur
 static volatile LONG g_modern_controls;  /* opt-in battlefield semantics */
 static volatile LONG g_modern_left_double_click_at;
 
+static volatile LONG g_modern_shift_box_select;
+static volatile LONG g_modern_shift_box_dragged;
 static int g_modern_right_click;         /* set while a routed right-up is resolved */
 static int g_modern_right_gesture;       /* right-down is awaiting click vs. drag */
 static int g_modern_right_pending;        /* synthetic left-up sent, native right-down next */
@@ -585,6 +587,18 @@ static LRESULT CALLBACK wndproc(HWND hw, UINT m, WPARAM w, LPARAM l) {
         if ((m == WM_LBUTTONUP || m == WM_RBUTTONUP || m == WM_MBUTTONUP) &&
             !(w & (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON)))
             ReleaseCapture();
+        int modern_controls = InterlockedCompareExchange(&g_modern_controls, 0, 0);
+        if (m == WM_LBUTTONDOWN || m == WM_LBUTTONDBLCLK) {
+            InterlockedExchange(&g_modern_shift_box_select,
+                modern_controls && (w & MK_SHIFT) != 0);
+            InterlockedExchange(&g_modern_shift_box_dragged, 0);
+        } else if (modern_controls && m == WM_MOUSEMOVE && (w & MK_LBUTTON)) {
+            if (w & MK_SHIFT)
+                InterlockedExchange(&g_modern_shift_box_select, 1);
+            InterlockedExchange(&g_modern_shift_box_dragged, 1);
+        } else if (modern_controls && m == WM_LBUTTONUP) {
+            if (w & MK_SHIFT) InterlockedExchange(&g_modern_shift_box_select, 1);
+        }
 
         if (m == WM_LBUTTONDBLCLK && InterlockedCompareExchange(&g_modern_controls, 0, 0)) {
             POINT p = { GET_X_LPARAM(l), GET_Y_LPARAM(l) };
@@ -913,6 +927,29 @@ uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target,
 
     if (action == 1u) return 7u;
     return action == 7u || action == 8u ? action : 0u;
+}
+
+static int preserve_shift_box_selection(void) {
+    LONG modern = InterlockedCompareExchange(&g_modern_controls, 0, 0);
+    LONG latched = InterlockedExchange(&g_modern_shift_box_select, 0);
+    return modern && latched;
+}
+
+int ra2_modern_preserve_global_selection_clear(void) {
+    LONG modern = InterlockedCompareExchange(&g_modern_controls, 0, 0);
+    LONG dragged = InterlockedCompareExchange(&g_modern_shift_box_dragged, 0, 0);
+    LONG shifted = dragged
+        ? InterlockedExchange(&g_modern_shift_box_select, 0)
+        : InterlockedCompareExchange(&g_modern_shift_box_select, 0, 0);
+    return modern && dragged && shifted;
+}
+
+int ra2_modern_preserve_box_selection(void) {
+    return preserve_shift_box_selection();
+}
+
+int ra2_modern_preserve_object_selection(void) {
+    return preserve_shift_box_selection();
 }
 
 int ra2_modern_consume_right_drag_release(void) {

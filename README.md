@@ -34,6 +34,9 @@ for comparison.
   fullscreen, HD vehicles, the bars beside the 4:3 menus, and the game's
   resolution, without editing an INI. The presenter remembers its settings
   and the window's place in `build\ra2.ini`.
+- **Modern mouse controls** (F10, Yuri's Revenge): left-click to select,
+  left-click open ground to clear selection, and right-click to issue orders;
+  Classic controls remain available (docs/modern-mouse-controls.md).
 - **High resolution and widescreen**: 1280x720 up to 3840x2160 in game, more
   of the battlefield on screen. 4K needed a fix to RA2's own sidebar, which
   overran its button array (docs/hires.md).

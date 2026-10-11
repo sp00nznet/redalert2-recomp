@@ -22,10 +22,21 @@ Red Alert 2 and the native Linux host are not wired to this option.
 | Left-click the minimap | Center the camera on that location. |
 | Right-click the minimap | Issue the selected units' order at that location. |
 | Hover the minimap | Do not issue an order. |
+| Double-right-click a deployable unit | Deploy it (keeps the existing behavior). |
+| Double-right-click a building | Make it the primary building (keeps the existing behavior). |
+| Double-left-click a unit | Select all visible units of the same type, like one press of `T`. |
+| Shift + left-drag a selection rectangle | Add the units in the rectangle to the current selection. |
+| Left-click a unit already in a group selection | Replace the group with that unit (requested Modern-mode improvement over base behavior). |
 
 Active placement and order modes retain their original right-click behavior.
 The F10 shortcut on the presenter bars and menu/interface clicks are not
 remapped.
+
+These are explicit Modern-mode choices. Deploy and primary-building selection
+remain on double-right-click. Double-left-click is reserved for selecting
+same-type units. Same-type selection and additive box selection are implemented;
+their in-game behavior is under follow-up after inconsistent results. Selecting
+one unit from an existing group is a requested improvement over the base game.
 
 ## Implementation notes
 
@@ -64,6 +75,19 @@ The relevant lifted `DisplayClass` path is:
 | `0x004AAD30` | `RightMouseButtonUp` (slot 49) | Cancel active modes; its ordinary fallback clears selection. |
 | `0x0048DC90` | — | Clear the current selection by calling each object's `Deselect()`. |
 
+Modern double-left-click on a unit posts the game's `T` key after the click is
+handled, reusing the game's same-type selection rules. The lifted action hook
+checks the target object's vtable to limit this to unit, infantry, and aircraft
+objects; it does not depend on the game's resolved action, which can vary with
+the current selection. Double-right-click retains the game's deploy and
+primary-building actions.
+
+For Shift box selection, the mouse-up path reaches the shared clear routine at
+`0x0048DC90`. Modern mode skips its deselection loop when Shift was held at the
+start of the drag or became held during it, then continues the routine's normal
+cleanup. The presenter's window procedure latches `MK_SHIFT` from mouse
+messages because the selection hook runs later in the game thread.
+
 ### Minimap event path
 
 The minimap uses `RTacticalClass@RadarClass::virtual_31` at `0x006539D0`.
@@ -90,10 +114,14 @@ Manual in-game verification:
 | Clear selection with left-click on open ground | Verified, including mixed land/naval selection. |
 | Left-click a friendly unit while another is selected | Selects the target without issuing Move. |
 | Left-click a naval yard with a selected ship | Does not trigger repair. |
-| Issue an order with right-click | Move verified; other target types, including turreted enemy buildings, need more coverage. |
+| Left-click an enemy turreted building with an attacking unit selected | Does not issue an attack order. Verified. |
+| Issue an order with right-click | Move verified; other target types still need more coverage. |
 | Left-click or hover the minimap; right-click the minimap | Recenters, issues an order, and does not order on hover. |
 | Right-click drag, including repeated drags and pan direction | Camera pans correctly and preserves selection. Verified. |
-| Double-left-click a deployable unit or building | Requested behavior; not yet verified in Modern mode. |
+| Double-right-click a deployable unit to deploy; double-right-click a building to make it primary | Existing behavior; preserve. |
+| Double-left-click a unit to select visible units of its type | Latest report: seems to work; consistency still needs more coverage. |
+| Shift + left-drag a selection rectangle | Verified by the user: the existing selection is preserved and boxed units are added, with Shift held before or after dragging starts. |
+| Left-click a unit already in a group selection | Requested Modern-mode improvement; not implemented yet. |
 | Special placement/order modes and interface clicks | Verified for the reported cases; not exhaustive. |
 
 The in-game checks are manual. The scripted playtest harness does not yet

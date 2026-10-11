@@ -269,6 +269,23 @@ def modern_mouse_patches():
             '@replace:{ extern int ra2_modern_consume_right_drag_release(void); '
             'if (!ra2_modern_consume_right_drag_release()) RECOMP_CALL(sub_0048DC90); } '
             '/* optional F10 Modern mouse controls */'),
+        # The drag-selection release normally clears the selection before
+        # applying the rectangle. Keep it when Shift is held in Modern mode.
+        0x004ABCD4: (
+            '@replace:{ extern int ra2_modern_preserve_box_selection(void); '
+            'if (!ra2_modern_preserve_box_selection()) RECOMP_CALL(sub_0048DC90); } '
+            '/* optional F10 Modern mouse controls */'),
+        # The virtual mouse-up path can clear selection through this shared
+        # routine instead of either mouse-up clear site above.
+        0x0048DC90: (
+            '{ extern int ra2_modern_preserve_global_selection_clear(void); '
+            'if (ra2_modern_preserve_global_selection_clear()) goto L_0048DCB1; } '
+            '/* preserve existing selection during a Shift box drag */'),
+        # Mouse-up can also clear selection while processing a target object.
+        0x004ABE4A: (
+            '@replace:{ extern int ra2_modern_preserve_object_selection(void); '
+            'if (!ra2_modern_preserve_object_selection()) RECOMP_CALL(sub_0048DC90); } '
+            '/* optional F10 Modern mouse controls */'),
     }
 
 
