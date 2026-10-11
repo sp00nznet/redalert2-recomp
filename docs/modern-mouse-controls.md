@@ -25,6 +25,8 @@ Red Alert 2 and the native Linux host are not wired to this option.
 | Right-click an already selected deployable unit | Deploy it. |
 | Right-click an already selected building | Make it the primary building. |
 | Double-left-click a unit | Select all visible units of the same type, like one press of `T`. |
+| Shift + left-click an unselected unit | Add it to the current selection. |
+| Shift + double-left-click a unit | Add all visible units of the same type to the current selection. |
 | Shift + left-drag a selection rectangle | Add the units in the rectangle to the current selection. |
 | Left-click a unit already in a group selection | Replace the group with that unit. |
 
@@ -37,10 +39,9 @@ remain on right-click when the object is already selected. A double-right-click
 on an unselected deployable unit or building no longer triggers the old
 shortcut because its first click no longer selects the object. The user accepts
 that tradeoff for now; no replacement shortcut is planned.
-Double-left-click is reserved for selecting same-type units. Same-type
-selection and additive box selection are implemented;
-their in-game behavior is under follow-up after inconsistent results. Selecting
-one unit from an existing group is a Modern-mode improvement over the base game.
+Double-left-click is reserved for selecting same-type units. Shift-click and
+Shift-double-click add units to the existing selection. Selecting one unit from
+an existing group is a Modern-mode improvement over the base game.
 
 ## Implementation notes
 

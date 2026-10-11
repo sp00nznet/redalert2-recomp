@@ -108,6 +108,8 @@ static int g_mode;                       /* index into k_mode_names */
 static int g_bars = 1;                   /* the bars beside a letterboxed picture: 0 black, 1 blurred */
 static volatile LONG g_modern_controls;  /* opt-in battlefield semantics */
 static volatile LONG g_modern_left_double_click_at;
+static volatile LONG g_modern_left_double_click_shift;
+static volatile LONG g_modern_additive_selection_at;
 
 static volatile LONG g_modern_shift_box_select;
 static volatile LONG g_modern_shift_box_dragged;
@@ -602,8 +604,10 @@ static LRESULT CALLBACK wndproc(HWND hw, UINT m, WPARAM w, LPARAM l) {
 
         if (m == WM_LBUTTONDBLCLK && InterlockedCompareExchange(&g_modern_controls, 0, 0)) {
             POINT p = { GET_X_LPARAM(l), GET_Y_LPARAM(l) };
-            if (PtInRect(&g_dst, p))
+            if (PtInRect(&g_dst, p)) {
                 InterlockedExchange(&g_modern_left_double_click_at, (LONG)GetTickCount());
+                InterlockedExchange(&g_modern_left_double_click_shift, (w & MK_SHIFT) != 0);
+            }
         }
         forward_mouse(m == WM_LBUTTONDBLCLK ? WM_LBUTTONDOWN : m == WM_RBUTTONDBLCLK ? WM_RBUTTONDOWN : m,
                       w, GET_X_LPARAM(l), GET_Y_LPARAM(l));
@@ -921,6 +925,9 @@ uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target,
     LONG double_click_at = InterlockedExchange(&g_modern_left_double_click_at, 0);
     int double_click = double_click_at &&
         (DWORD)(GetTickCount() - (DWORD)double_click_at) <= GetDoubleClickTime();
+    int additive_double_click = double_click &&
+        InterlockedExchange(&g_modern_left_double_click_shift, 0);
+    if (!double_click) InterlockedExchange(&g_modern_left_double_click_shift, 0);
     if (!InterlockedCompareExchange(&g_modern_controls, 0, 0) || special)
         return action;
 
@@ -931,11 +938,22 @@ uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target,
         return action == 0u || action == 7u || action == 8u ? MODERN_CLICK_IGNORE : action;
     }
 
-    if (double_click &&
-        (target_vtable == 0x007F5C70u || /* UnitClass */
-         target_vtable == 0x007EB058u || /* InfantryClass */
-         target_vtable == 0x007E22A4u)) { /* AircraftClass */
+    int selectable_unit = target_vtable == 0x007F5C70u || /* UnitClass */
+                          target_vtable == 0x007EB058u || /* InfantryClass */
+                          target_vtable == 0x007E22A4u; /* AircraftClass */
+    if (!double_click && action == 1u && selectable_unit && target && !selected_in_group &&
+        InterlockedCompareExchange(&g_modern_shift_box_select, 0, 0))
+        InterlockedExchange(&g_modern_additive_selection_at, (LONG)GetTickCount());
+
+    if (double_click && selectable_unit) {
         /* Reuse the game's T command so its own on-screen and ownership rules apply. */
+        if (additive_double_click) {
+            InterlockedExchange(&g_modern_additive_selection_at, (LONG)GetTickCount());
+            /* Keep the old group while T selects the matching visible units. */
+            forward_key(WM_KEYDOWN, 'T', 0x00140001L);
+            forward_key(WM_KEYUP, 'T', 0xC0140001L);
+            return MODERN_CLICK_IGNORE;
+        }
         forward_key(WM_KEYDOWN, 'T', 0x00140001L);
         forward_key(WM_KEYUP, 'T', 0xC0140001L);
         return action == 1u ? 7u : action == 7u || action == 8u ? action : 0u;
@@ -966,6 +984,10 @@ static int preserve_shift_box_selection(void) {
 
 int ra2_modern_preserve_global_selection_clear(void) {
     LONG modern = InterlockedCompareExchange(&g_modern_controls, 0, 0);
+    LONG additive_selection_at = InterlockedExchange(&g_modern_additive_selection_at, 0);
+    if (modern && additive_selection_at &&
+        (DWORD)(GetTickCount() - (DWORD)additive_selection_at) <= 1000u)
+        return 1;
     LONG dragged = InterlockedCompareExchange(&g_modern_shift_box_dragged, 0, 0);
     LONG shifted = dragged
         ? InterlockedExchange(&g_modern_shift_box_select, 0)
