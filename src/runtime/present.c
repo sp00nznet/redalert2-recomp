@@ -903,7 +903,8 @@ int ra2_modern_consume_left_release(void) {
 }
 
 uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target,
-                                      uint32_t target_vtable, int special) {
+                                      uint32_t target_vtable, int selected_in_group,
+                                      uint32_t selection_count, int special) {
     if (ra2_modern_consume_left_release()) return 0;
     LONG double_click_at = InterlockedExchange(&g_modern_left_double_click_at, 0);
     int double_click = double_click_at &&
@@ -919,6 +920,15 @@ uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target,
         forward_key(WM_KEYDOWN, 'T', 0x00140001L);
         forward_key(WM_KEYUP, 'T', 0xC0140001L);
         return action == 1u ? 7u : action == 7u || action == 8u ? action : 0u;
+    }
+
+    if (selected_in_group && selection_count > 1 &&
+        (target_vtable == 0x007F5C70u || /* UnitClass */
+         target_vtable == 0x007EB058u || /* InfantryClass */
+         target_vtable == 0x007E22A4u)) { /* AircraftClass */
+        /* Force the ordinary single-object path; it clears the group before
+         * adding the clicked unit back to the selection. */
+        return 7u;
     }
 
     if (!target) {

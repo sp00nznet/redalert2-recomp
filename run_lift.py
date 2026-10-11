@@ -255,12 +255,17 @@ def modern_mouse_patches():
         # In Modern mode, plain left-clicks select objects or clear the
         # selection on open ground; contextual orders remain on right-click.
         0x00693271: (
-            '{ extern uint32_t ra2_modern_left_click_action(uint32_t, uint32_t, uint32_t, int); '
+            '{ extern uint32_t ra2_modern_left_click_action(uint32_t, uint32_t, uint32_t, int, uint32_t, int); '
             'int special = MEM32(esi + 0x11A4) != 0 || '
             'MEM8(esi + 0x11B0) || MEM8(esi + 0x11B1) || MEM8(esi + 0x11B2) || '
             'MEM8(esi + 0x11B3) || MEM8(esi + 0x11B4) || MEM32(esi + 0x11B8) != 0xFFFFFFFFu; '
             'uint32_t target = MEM32(esp + 0x30); uint32_t vtable = target ? MEM32(target) : 0; '
-            'uint32_t action = ra2_modern_left_click_action(eax, target, vtable, special); '
+            'uint32_t selection_count = MEM32(0xA8ECC8); uint32_t selected_in_group = 0; '
+            'uint32_t selected_data = MEM32(0xA8ECBC); '
+            'if (target && selected_data && selection_count <= 4096u) '
+            'for (uint32_t i = 0; i < selection_count; ++i) '
+            'if (MEM32(selected_data + i * 4u) == target) { selected_in_group = 1; break; } '
+            'uint32_t action = ra2_modern_left_click_action(eax, target, vtable, selected_in_group, selection_count, special); '
             'if (action == 0xFFFFFFFFu) { RECOMP_CALL(sub_0048DC90); RECOMP_FLAGS_IN(); eax = 0; } '
             'else eax = action; } '
             '/* optional F10 Modern mouse controls */'),
