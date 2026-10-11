@@ -21,7 +21,6 @@ Red Alert 2 and the native Linux host are not wired to this option.
 | Right-drag | Pan the camera using the original game behavior. |
 | Left-click the minimap | Center the camera on that location. |
 | Right-click the minimap | Issue the selected units' order at that location. |
-| Hover the minimap | Do not issue an order. |
 | Double-right-click a deployable unit | Deploy it (keeps the existing behavior). |
 | Double-right-click a building | Make it the primary building (keeps the existing behavior). |
 | Double-left-click a unit | Select all visible units of the same type, like one press of `T`. |
@@ -97,13 +96,12 @@ messages because the selection hook runs later in the game thread.
 ### Minimap event path
 
 The minimap uses `RTacticalClass@RadarClass::virtual_31` at `0x006539D0`.
-Its first byte argument carries left-button flags `0x01`/`0x04`, right-button
-flags `0x10`/`0x40`, and hover flag `0x88`. The Modern patch at `0x006539D3`
+Its first byte argument carries left-button flags `0x01`/`0x04` and right-button
+flags `0x10`/`0x40`. The Modern patch at `0x006539D3`
 swaps the low and high nibbles, then writes the mapped byte back to the stack
 argument. Both the register and stack value matter: later branches in the same
-handler read the original argument directly. The symmetric hover flag remains
-unchanged. The helper also keeps the live button state consistent with the
-mapped radar event.
+handler read the original argument directly. The helper also keeps the live
+button state consistent with the mapped radar event.
 
 The lifted function names and callback roles were matched against the
 community-maintained [YRpp DisplayClass.h](https://github.com/Ares-Developers/YRpp/blob/master/DisplayClass.h),
@@ -122,7 +120,7 @@ Manual in-game verification:
 | Left-click a naval yard with a selected ship | Does not trigger repair. |
 | Left-click an enemy turreted building with an attacking unit selected | Does not issue an attack order. Verified. |
 | Issue an order with right-click | Move verified; other target types still need more coverage. |
-| Left-click or hover the minimap; right-click the minimap | Recenters, issues an order, and does not order on hover. |
+| Left-click or right-click the minimap | Left-click recenters; right-click issues an order. |
 | Right-click drag, including repeated drags and pan direction | Camera pans correctly and preserves selection. Verified. |
 | Double-right-click a deployable unit to deploy; double-right-click a building to make it primary | Existing behavior; preserve. |
 | Double-left-click a unit to select visible units of its type | Latest report: seems to work; consistency still needs more coverage. |
