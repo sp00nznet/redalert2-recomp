@@ -860,24 +860,6 @@ uint32_t ra2_modern_mouse_message(uint32_t message, int special_mode_active) {
     return message;
 }
 
-/* Temporary trace: the radar callback also runs during hover refreshes.
- * Log only changed event flags/button state and cap output for readability. */
-void ra2_modern_radar_trace(uint32_t arg1, uint32_t arg2, uint32_t arg3,
-                            uint32_t arg4, uint32_t arg5, uint32_t self) {
-    static uint32_t last1 = 0xFFFFFFFFu, last5 = 0xFFFFFFFFu;
-    static int last_buttons = -1;
-    static unsigned count;
-    int buttons;
-    if (!InterlockedCompareExchange(&g_modern_controls, 0, 0) || count >= 128) return;
-    buttons = input_live_button_state();
-    if (arg1 == last1 && arg5 == last5 && buttons == last_buttons) return;
-    last1 = arg1, last5 = arg5, last_buttons = buttons;
-    fprintf(stderr, "[modern-radar] self=%08X args=%08X,%08X,%08X,%08X,%08X buttons=%02X\n",
-            self, arg1, arg2, arg3, arg4, arg5, buttons);
-    fflush(stderr);
-    count++;
-}
-
 /* RadarClass encodes left-button events in the low flag nibble and
  * right-button events in the high nibble. Hover's 0x88 flag is symmetric,
  * so swapping nibbles changes button semantics without turning hover into a
@@ -889,12 +871,6 @@ uint32_t ra2_modern_radar_event_flags(uint32_t flags) {
     }
     input_live_swap_left_right(input_live_button_state() & (MK_LBUTTON | MK_RBUTTON));
     uint32_t mapped = ((flags & 0x0Fu) << 4) | ((flags & 0xF0u) >> 4);
-    static unsigned trace_count;
-    if (mapped != flags && trace_count < 64) {
-        fprintf(stderr, "[modern-radar-map] raw=%02X mapped=%02X\n", flags & 0xFFu, mapped & 0xFFu);
-        fflush(stderr);
-        trace_count++;
-    }
     return mapped;
 }
 

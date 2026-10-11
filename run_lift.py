@@ -245,13 +245,10 @@ def modern_mouse_patches():
             'MEM8(esi + 0x11B3) || MEM8(esi + 0x11B4) || MEM32(esi + 0x11B8) != 0xFFFFFFFFu; '
             'eax = ra2_modern_mouse_message(eax, special); } '
             '/* optional F10 Modern mouse controls */'),
-        # This radar routine also runs for hover refreshes. Capture its flag
-        # arguments and the live button state before changing its click route.
+        # Keep the mapped radar flags in the stack argument as well as DL;
+        # later branches in this handler read the argument again.
         0x006539D3: (
-            '{ extern void ra2_modern_radar_trace(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t); '
-            'extern uint32_t ra2_modern_radar_event_flags(uint32_t); '
-            'ra2_modern_radar_trace(MEM32(esp + 0x48), MEM32(esp + 0x4C), '
-            'MEM32(esp + 0x50), MEM32(esp + 0x54), MEM32(esp + 0x58), ecx); '
+            '{ extern uint32_t ra2_modern_radar_event_flags(uint32_t); '
             'SET_LO8(edx, ra2_modern_radar_event_flags(LO8(edx))); '
             'MEM8(esp + 0x48) = LO8(edx); } '
             '/* swap radar left/right event flags in Modern mode */'),
