@@ -18,6 +18,7 @@ cmake-build-*/
 .vs/
 .vscode/
 *.user
+*.lnk
 
 # Python
 .venv/

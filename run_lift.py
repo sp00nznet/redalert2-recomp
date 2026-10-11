@@ -252,7 +252,8 @@ def modern_mouse_patches():
             'extern uint32_t ra2_modern_radar_event_flags(uint32_t); '
             'ra2_modern_radar_trace(MEM32(esp + 0x48), MEM32(esp + 0x4C), '
             'MEM32(esp + 0x50), MEM32(esp + 0x54), MEM32(esp + 0x58), ecx); '
-            'SET_LO8(edx, ra2_modern_radar_event_flags(LO8(edx))); } '
+            'SET_LO8(edx, ra2_modern_radar_event_flags(LO8(edx))); '
+            'MEM8(esp + 0x48) = LO8(edx); } '
             '/* swap radar left/right event flags in Modern mode */'),
         # In Modern mode, plain left-clicks select objects or clear the
         # selection on open ground; contextual orders remain on right-click.
