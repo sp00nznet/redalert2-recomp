@@ -87,6 +87,8 @@ uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target, uint32_t
     (void)target, (void)target_vtable, (void)selected_in_group, (void)selection_count, (void)special;
     return action;
 }
+int ra2_modern_take_type_select(void) { return 0; }
+void ra2_modern_end_left_up(void) {}
 int ra2_modern_preserve_global_selection_clear(void) { return 0; }
 int ra2_modern_preserve_shift_selection(void) { return 0; }
 int ra2_modern_consume_right_drag_release(void) { return 0; }

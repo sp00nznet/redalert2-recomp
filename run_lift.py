@@ -239,6 +239,8 @@ MODERN_MOUSE_TARGETS = {
         'special_state': 0x11A4, 'special_flags': 0x11B0, 'special_sentinel': 0x11B8,
         'box_clear': 0x004ABCD4, 'object_clear': 0x004ABE4A,
         'clear': 0x0048DC90, 'clear_skip': 'L_0048DCB1', 'clear_fn': 'sub_0048DC90',
+        'after_left_up': 0x00693290,
+        'type_select_down': 'sub_00732CA0', 'type_select_up': 'sub_00732CC0',
         'selection_count': 0x00A8ECC8, 'selection_data': 0x00A8ECBC,
         'unit_vtable': 0x007F5C70, 'infantry_vtable': 0x007EB058,
         'aircraft_vtable': 0x007E22A4,
@@ -249,6 +251,8 @@ MODERN_MOUSE_TARGETS = {
         'special_state': 0x11A0, 'special_flags': 0x11AC, 'special_sentinel': 0x11B4,
         'box_clear': 0x0049BE44, 'object_clear': 0x0049BFB4,
         'clear': 0x00482BC0, 'clear_skip': 'L_00482BE1', 'clear_fn': 'sub_00482BC0',
+        'after_left_up': 0x0066A5F0,
+        'type_select_down': 'sub_006F7650', 'type_select_up': 'sub_006F7670',
         'selection_count': 0x00A40C70, 'selection_data': 0x00A40C64,
         'unit_vtable': 0x007ADDF8, 'infantry_vtable': 0x007A3540,
         'aircraft_vtable': 0x0079B12C,
@@ -318,6 +322,17 @@ def modern_mouse_patches(target):
             'else if (action == 0xFFFFFFFEu) { MEM32(esp + 0x30) = 0; eax = 0; } '
             'else eax = action; } '
             '/* optional F10 Modern mouse controls */') % (special_expr, addr('selection_count'), addr('selection_data'), clear_fn),
+        # Just after LeftMouseButtonUp returns: run a same-type selection the
+        # click asked for (TypeSelectCommandClass's own key-down and key-up
+        # halves, as one tap of its key), then end the click's one-shot
+        # selection-clear skip.
+        t['after_left_up']: (
+            '{ extern int ra2_modern_take_type_select(void); '
+            'extern void ra2_modern_end_left_up(void); '
+            'if (ra2_modern_take_type_select()) { '
+            'RECOMP_CALL(%s); RECOMP_FLAGS_IN(); RECOMP_CALL(%s); RECOMP_FLAGS_IN(); } '
+            'ra2_modern_end_left_up(); } '
+            '/* optional F10 Modern mouse controls */') % (t['type_select_down'], t['type_select_up']),
         # The original right-up cleanup clears selection after camera pan.
         t['right_up']: (
             '@replace:{ extern int ra2_modern_consume_right_drag_release(void); '
@@ -329,12 +344,13 @@ def modern_mouse_patches(target):
             '@replace:{ extern int ra2_modern_preserve_shift_selection(void); '
             'if (!ra2_modern_preserve_shift_selection()) RECOMP_CALL(%s); } '
             '/* optional F10 Modern mouse controls */') % clear_fn,
-        # The virtual mouse-up path can clear selection through this shared
-        # routine instead of either mouse-up clear site above.
+        # The virtual mouse-up path and the same-type selection can clear
+        # selection through this shared routine instead of either mouse-up
+        # clear site above.
         t['clear']: (
             '{ extern int ra2_modern_preserve_global_selection_clear(void); '
             'if (ra2_modern_preserve_global_selection_clear()) goto %s; } '
-            '/* preserve existing selection during a Shift box drag */') % t['clear_skip'],
+            '/* preserve existing selection during a Shift-click or Shift box drag */') % t['clear_skip'],
         # Mouse-up can also clear selection while processing a target object.
         t['object_clear']: (
             '@replace:{ extern int ra2_modern_preserve_shift_selection(void); '

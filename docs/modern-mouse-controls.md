@@ -18,6 +18,7 @@ unchanged, so it always plays with Classic controls.
 | Left-click a unit or building | Select it. |
 | Left-drag | Box-select. |
 | Left-click open battlefield ground | Clear selection without issuing an order. |
+| Shift + left-click open battlefield ground | Keep the selection; Shift only ever adds. |
 | Right-click a battlefield cell or object | Issue the context-sensitive order. |
 | Right-click a unit | Issue its contextual order if the game offers one; never select the clicked unit or change the current selection. |
 | Right-drag | Pan the camera using the original game behavior. |
@@ -39,10 +40,6 @@ remapped.
 an *unselected* deployable unit or building no longer deploys it or makes it
 primary. Select it first, then right-click it. No replacement shortcut is
 planned.
-
-**Known limitation:** double-left-click posts the `T` key to the game. If
-"select same type" is rebound in `Keyboard.ini`, Modern double-click follows
-whatever command `T` is bound to instead.
 
 ## Implementation notes
 
@@ -80,7 +77,8 @@ resolved action:
   slot 45 only update the cursor and arm drag-selection.
 - **Left-click on open ground.** With no target, any action other than
   `Select`/`ToggleSelect` becomes a call to the selection-clear helper
-  (`sub_0048DC90`) followed by `None`, so no order is issued.
+  (`sub_0048DC90`) followed by `None`, so no order is issued. With Shift held
+  it becomes a plain `None` instead and the selection is kept.
 - **Left-click on an object.** `Move` becomes `Select`; other non-selection
   actions become `None`, which selects a selectable target through the branch
   above and never issues an order.
@@ -109,6 +107,8 @@ addresses and selected-object globals:
 | Mouse message dispatch / right-click remap | `0x00693107` | `0x0066A467` |
 | Minimap button flags | `0x006539D3` (stack `+0x48`) | `0x0062FE33` (stack `+0x44`) |
 | Mouse-up resolved action | `0x00693271` | `0x0066A5D1` |
+| After `LeftMouseButtonUp` returns | `0x00693290` | `0x0066A5F0` |
+| Same-type selection key down / key up | `0x00732CA0` / `0x00732CC0` | `0x006F7650` / `0x006F7670` |
 | Right-up selection cleanup | `0x004AAE6E` | `0x0049B0CE` |
 | Box-selection cleanup | `0x004ABCD4` | `0x0049BE44` |
 | Target-object cleanup | `0x004ABE4A` | `0x0049BFB4` |
@@ -116,15 +116,20 @@ addresses and selected-object globals:
 
 ### Same-type and additive selection
 
-Modern double-left-click on a unit posts the game's `T` key, reusing the
-game's same-type selection rules. The action hook checks the target object's
-vtable to limit this to unit, infantry, and aircraft objects; it does not
-depend on the resolved action, which can vary with the current selection.
+Modern double-left-click on a unit runs the game's own same-type selection
+(`TypeSelectCommandClass`, the `T` command), so its on-screen and ownership
+rules apply. The action hook only flags the request; a second hook just after
+`LeftMouseButtonUp` returns calls the command's key-down and key-up halves,
+as one tap of its key would. It does not depend on the key binding in
+`Keyboard.ini`. The action hook checks the target object's vtable to limit
+this to unit, infantry, and aircraft objects; it does not depend on the
+resolved action, which can vary with the current selection.
 
-Shift-click and Shift-double-click record a timestamp; the next call to the
-shared selection-clear helper within one second skips its deselection loop
-once, so the clicked unit or same-type group is added to the existing
-selection.
+Shift-click and Shift-double-click set a one-shot flag: the shared
+selection-clear helper skips its deselection loop once, so the clicked unit or
+same-type group is added to the existing selection. The after-mouse-up hook
+drops the flag when the click is done, so it never carries over to a later
+click.
 
 When a plain left-click targets a unit that is already in a multi-unit
 selection, the hook checks membership in the game's selected-object vector and
@@ -133,7 +138,9 @@ clicked unit.
 
 For Shift box selection, the presenter's window procedure latches `MK_SHIFT`
 from the mouse messages, because the selection hooks run later on the game
-thread. When Shift was held at the start of the drag or became held during it,
+thread. A press only counts as a drag once it moves past the Windows drag
+distance (`SM_CXDRAG`/`SM_CYDRAG`), so a click that wobbles a pixel is still a
+click. When Shift was held at the start of the drag or became held during it,
 the box-selection and target-object clear calls are skipped
 (`ra2_modern_preserve_shift_selection`), as is the shared helper's deselection
 loop (`ra2_modern_preserve_global_selection_clear`); the helper's other cleanup
@@ -156,9 +163,10 @@ community-maintained [YRpp DisplayClass.h](https://github.com/Ares-Developers/YR
 
 ## Manual verification
 
-Checked by hand in Yuri's Revenge. The Red Alert 2 port builds from its own
-lift but has not been checked in game. The scripted playtest harness does not
-yet assert Modern-mode selection, minimap, or right-click behavior.
+Checked by hand in Yuri's Revenge. Red Alert 2 matches it on every case below
+except the turreted-building and naval cases, which have not been checked
+there. The scripted playtest harness does not yet assert Modern-mode
+selection, minimap, or right-click behavior.
 
 | Case | Status |
 | --- | --- |
@@ -174,7 +182,7 @@ yet assert Modern-mode selection, minimap, or right-click behavior.
 | Right-click an already selected deployable unit/building | Not yet checked. |
 | Double-left-click a unit to select visible units of its type | Appears to work; needs more coverage. |
 | Shift-click a unit; Shift-double-click a different unit type with another group selected | Verified. |
-| Shift-click a unit that is already in a group selection | Not yet checked. |
+| Shift-click a unit that is already in a group selection | Nothing happens; removing it from the selection is planned. |
 | Shift + left-drag a selection rectangle | Verified: keeps the existing selection and adds the boxed units, with Shift held before or after the drag starts. |
 | Left-click a unit already in a group selection | Verified: replaces the group with the clicked unit. |
 | Special placement/order modes and interface clicks | Verified for the cases tried; not exhaustive. |

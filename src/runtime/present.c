@@ -112,10 +112,12 @@ static int g_bars = 1;                   /* the bars beside a letterboxed pictur
 static volatile LONG g_modern_controls;  /* opt-in battlefield semantics */
 static volatile LONG g_modern_left_double_click_at;    /* tick of a battlefield double-click */
 static volatile LONG g_modern_left_double_click_shift; /* ... made with Shift held */
-static volatile LONG g_modern_additive_selection_at;   /* tick a Shift-click added to the selection */
 static volatile LONG g_modern_shift_box_select;        /* Shift held during the left press */
 static volatile LONG g_modern_shift_box_dragged;       /* the left press became a drag */
-/* and the game thread's own right-button gesture state: */
+static POINT g_modern_left_press;        /* client point of the left press (window thread only) */
+/* and the game thread's own state, for the click being handled: */
+static int g_modern_skip_selection_clear; /* the click adds to the selection */
+static int g_modern_type_select;         /* the click selects every visible unit of its type */
 static int g_modern_right_click;         /* set while a routed right-up is resolved */
 static int g_modern_right_gesture;       /* right-down is awaiting click vs. drag */
 static int g_modern_right_pending;       /* synthetic left-up sent, native right-down next */
@@ -591,10 +593,15 @@ static LRESULT CALLBACK wndproc(HWND hw, UINT m, WPARAM w, LPARAM l) {
             InterlockedExchange(&g_modern_shift_box_select,
                 modern_controls && (w & MK_SHIFT) != 0);
             InterlockedExchange(&g_modern_shift_box_dragged, 0);
+            g_modern_left_press.x = GET_X_LPARAM(l), g_modern_left_press.y = GET_Y_LPARAM(l);
         } else if (modern_controls && m == WM_MOUSEMOVE && (w & MK_LBUTTON)) {
             if (w & MK_SHIFT)
                 InterlockedExchange(&g_modern_shift_box_select, 1);
-            InterlockedExchange(&g_modern_shift_box_dragged, 1);
+            /* A wobble during a click is not a drag: only past the Windows
+             * drag distance does the press become a box selection. */
+            if (abs(GET_X_LPARAM(l) - g_modern_left_press.x) >= GetSystemMetrics(SM_CXDRAG) ||
+                abs(GET_Y_LPARAM(l) - g_modern_left_press.y) >= GetSystemMetrics(SM_CYDRAG))
+                InterlockedExchange(&g_modern_shift_box_dragged, 1);
         } else if (modern_controls && m == WM_LBUTTONUP) {
             if (w & MK_SHIFT) InterlockedExchange(&g_modern_shift_box_select, 1);
         }
@@ -935,16 +942,18 @@ uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target,
                                      target_vtable == RA2_MODERN_AIRCRAFT_VTABLE);
     if (!double_click && action == ACTION_MOVE && selectable_unit && !selected_in_group &&
         InterlockedCompareExchange(&g_modern_shift_box_select, 0, 0))
-        InterlockedExchange(&g_modern_additive_selection_at, (LONG)GetTickCount());
+        g_modern_skip_selection_clear = 1;
 
     if (double_click && selectable_unit) {
-        /* Reuse the game's T command so its own on-screen and ownership rules
-         * apply. Shift keeps the old group while T selects the matching units. */
-        if (additive_double_click)
-            InterlockedExchange(&g_modern_additive_selection_at, (LONG)GetTickCount());
-        forward_key(WM_KEYDOWN, 'T', 0x00140001L);
-        forward_key(WM_KEYUP, 'T', 0xC0140001L);
-        if (additive_double_click) return MODERN_CLICK_IGNORE;
+        /* The game's same-type selection runs once the mouse-up handler has
+         * returned (ra2_modern_take_type_select), so its own on-screen and
+         * ownership rules apply. Shift keeps the old group while it adds the
+         * matching units. */
+        g_modern_type_select = 1;
+        if (additive_double_click) {
+            g_modern_skip_selection_clear = 1;
+            return MODERN_CLICK_IGNORE;
+        }
         return action == ACTION_MOVE ? ACTION_SELECT : selecting ? action : ACTION_NONE;
     }
 
@@ -952,20 +961,40 @@ uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target,
      * which clears the group before adding the clicked unit back. */
     if (selectable_unit && selected_in_group && selection_count > 1) return ACTION_SELECT;
 
-    if (!target) return selecting ? action : MODERN_CLICK_CLEAR_SELECTION;
+    /* Open ground: a plain click clears the selection; with Shift, which only
+     * ever adds to the selection, it leaves it alone. */
+    if (!target) {
+        if (selecting) return action;
+        return InterlockedCompareExchange(&g_modern_shift_box_select, 0, 0)
+            ? MODERN_CLICK_IGNORE : MODERN_CLICK_CLEAR_SELECTION;
+    }
     if (action == ACTION_MOVE) return ACTION_SELECT;
     return selecting ? action : ACTION_NONE;
 }
 
+/* After the click's mouse-up handler: whether it asked for a same-type
+ * selection, which the lifted hook runs before ra2_modern_end_left_up. */
+int ra2_modern_take_type_select(void) {
+    int type_select = g_modern_type_select;
+    g_modern_type_select = 0;
+    return type_select;
+}
+
+/* The click is done: a selection-clear skip it set and did not use must not
+ * leak into a later click. */
+void ra2_modern_end_left_up(void) {
+    g_modern_skip_selection_clear = 0;
+}
+
 /* The shared selection-clear routine (sub_0048DC90 in Yuri's Revenge): skip it
- * once after a Shift-click or Shift-double-click added to the selection, or at
- * the end of a Shift box drag. */
+ * once during a Shift-click or Shift-double-click that adds to the selection,
+ * or at the end of a Shift box drag. */
 int ra2_modern_preserve_global_selection_clear(void) {
     LONG modern = InterlockedCompareExchange(&g_modern_controls, 0, 0);
-    LONG additive_selection_at = InterlockedExchange(&g_modern_additive_selection_at, 0);
-    if (modern && additive_selection_at &&
-        (DWORD)(GetTickCount() - (DWORD)additive_selection_at) <= 1000u)
-        return 1;
+    if (g_modern_skip_selection_clear) {
+        g_modern_skip_selection_clear = 0;
+        if (modern) return 1;
+    }
     LONG dragged = InterlockedCompareExchange(&g_modern_shift_box_dragged, 0, 0);
     LONG shifted = dragged
         ? InterlockedExchange(&g_modern_shift_box_select, 0)
