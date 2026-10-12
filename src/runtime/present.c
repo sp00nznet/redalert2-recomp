@@ -118,6 +118,9 @@ static POINT g_modern_left_press;        /* client point of the left press (wind
 /* and the game thread's own state, for the click being handled: */
 static int g_modern_skip_selection_clear; /* the click adds to the selection */
 static int g_modern_type_select;         /* the click selects every visible unit of its type */
+static int g_modern_box_shift;           /* the box-selection clear was skipped for Shift */
+static int g_modern_box_mode;            /* what the box walk's Select() does: MODERN_BOX_* */
+static int g_modern_box_objects, g_modern_box_unselected; /* counted by the dry run */
 static int g_modern_right_click;         /* set while a routed right-up is resolved */
 static int g_modern_right_gesture;       /* right-down is awaiting click vs. drag */
 static int g_modern_right_pending;       /* synthetic left-up sent, native right-down next */
@@ -957,6 +960,11 @@ uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target,
         return action == ACTION_MOVE ? ACTION_SELECT : selecting ? action : ACTION_NONE;
     }
 
+    /* Shift on an object that is already selected: the game's own ToggleSelect,
+     * which calls only that object's Deselect(). */
+    if (target && selected_in_group && InterlockedCompareExchange(&g_modern_shift_box_select, 0, 0))
+        return ACTION_TOGGLE_SELECT;
+
     /* A unit in a multi-unit selection: force the ordinary single-object path,
      * which clears the group before adding the clicked unit back. */
     if (selectable_unit && selected_in_group && selection_count > 1) return ACTION_SELECT;
@@ -984,6 +992,7 @@ int ra2_modern_take_type_select(void) {
  * leak into a later click. */
 void ra2_modern_end_left_up(void) {
     g_modern_skip_selection_clear = 0;
+    g_modern_box_shift = 0;
 }
 
 /* The shared selection-clear routine (sub_0048DC90 in Yuri's Revenge): skip it
@@ -1006,7 +1015,46 @@ int ra2_modern_preserve_global_selection_clear(void) {
 int ra2_modern_preserve_shift_selection(void) {
     LONG modern = InterlockedCompareExchange(&g_modern_controls, 0, 0);
     LONG latched = InterlockedExchange(&g_modern_shift_box_select, 0);
+    if (modern && latched) g_modern_box_shift = 1;
     return modern && latched;
+}
+
+/* A Shift box selection adds the boxed units, unless every one of them is
+ * selected already: then it removes them. The lifted hooks walk the box twice,
+ * a dry run that only counts (ra2_modern_box_object) and then the real one. */
+enum { MODERN_BOX_SELECT, MODERN_BOX_COUNT, MODERN_BOX_DESELECT };
+
+int ra2_modern_shift_box_begin(void) {
+    int shift = g_modern_box_shift || InterlockedCompareExchange(&g_modern_shift_box_select, 0, 0);
+    if (!InterlockedCompareExchange(&g_modern_controls, 0, 0) || !shift) return 0;
+    g_modern_box_mode = MODERN_BOX_COUNT;
+    g_modern_box_objects = g_modern_box_unselected = 0;
+    return 1;
+}
+
+void ra2_modern_shift_box_decide(void) {
+    g_modern_box_mode = g_modern_box_objects && !g_modern_box_unselected
+        ? MODERN_BOX_DESELECT : MODERN_BOX_SELECT;
+}
+
+void ra2_modern_shift_box_end(void) {
+    g_modern_box_mode = MODERN_BOX_SELECT;
+    g_modern_box_shift = 0;
+}
+
+/* For each selectable object in the box: 0 skip it, 1 Select() it as the game
+ * would, 2 Deselect() it. */
+int ra2_modern_box_object(int selected) {
+    switch (g_modern_box_mode) {
+    case MODERN_BOX_COUNT:
+        g_modern_box_objects++;
+        if (!selected) g_modern_box_unselected++;
+        return 0;
+    case MODERN_BOX_DESELECT:
+        return selected ? 2 : 0;
+    default:
+        return 1;
+    }
 }
 
 int ra2_modern_consume_right_drag_release(void) {

@@ -28,8 +28,9 @@ unchanged, so it always plays with Classic controls.
 | Right-click an already selected building | Make it the primary building. |
 | Double-left-click a unit | Select all visible units of the same type, like one press of `T`. |
 | Shift + left-click an unselected unit | Add it to the current selection. |
+| Shift + left-click a selected unit or building | Remove it from the current selection. |
 | Shift + double-left-click a unit | Add all visible units of the same type to the current selection. |
-| Shift + left-drag a selection rectangle | Add the units in the rectangle to the current selection. |
+| Shift + left-drag a selection rectangle | Add the units in the rectangle to the current selection; if every one of them is already selected, remove them instead. |
 | Left-click a unit already in a group selection | Replace the group with that unit. |
 
 Active placement and order modes retain their original right-click behavior.
@@ -131,6 +132,10 @@ same-type group is added to the existing selection. The after-mouse-up hook
 drops the flag when the click is done, so it never carries over to a later
 click.
 
+A Shift-click on an object that is already selected returns `ToggleSelect`
+(8). `LeftMouseButtonUp` handles it at `0x004ABD24` by calling only that
+object's `Deselect()` (vtable `+0x150`).
+
 When a plain left-click targets a unit that is already in a multi-unit
 selection, the hook checks membership in the game's selected-object vector and
 returns `Select`, whose single-object path clears the group and selects the
@@ -145,6 +150,17 @@ the box-selection and target-object clear calls are skipped
 (`ra2_modern_preserve_shift_selection`), as is the shared helper's deselection
 loop (`ra2_modern_preserve_global_selection_clear`); the helper's other cleanup
 still runs.
+
+A Shift box whose units are all selected already removes them. The box walk
+(`0x006D9FF0` in Yuri's Revenge, `0x006AA610` in Red Alert 2) calls a callback
+for each object in the rectangle, and the callback calls the object's
+`Select()`. With Shift held, the hook on the walk call (`0x004ABCEB` /
+`0x0049BE5B`) runs the walk twice: first a dry run in which the hook on the
+callback's `Select()` (`0x004AC2F1` / `0x0049C470`) only counts the objects and
+the unselected ones, then the real walk, in which that hook calls `Deselect()`
+when the dry run found every object selected, and `Select()` otherwise. The
+walk clears the rectangle it reads (`TacticalClass` `+0xD90`/`+0xD94`), so the
+hook puts it back between the two walks.
 
 ### Minimap event path
 
@@ -182,7 +198,8 @@ selection, minimap, or right-click behavior.
 | Right-click an already selected deployable unit/building | Not yet checked. |
 | Double-left-click a unit to select visible units of its type | Appears to work; needs more coverage. |
 | Shift-click a unit; Shift-double-click a different unit type with another group selected | Verified. |
-| Shift-click a unit that is already in a group selection | Nothing happens; removing it from the selection is planned. |
+| Shift-click a unit that is already in a group selection | Removes it from the selection. Not yet checked in game. |
+| Shift + left-drag over units that are all selected already | Removes them. Not yet checked in game. |
 | Shift + left-drag a selection rectangle | Verified: keeps the existing selection and adds the boxed units, with Shift held before or after the drag starts. |
 | Left-click a unit already in a group selection | Verified: replaces the group with the clicked unit. |
 | Special placement/order modes and interface clicks | Verified for the cases tried; not exhaustive. |

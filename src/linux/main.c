@@ -92,6 +92,10 @@ void ra2_modern_end_left_up(void) {}
 int ra2_modern_preserve_global_selection_clear(void) { return 0; }
 int ra2_modern_preserve_shift_selection(void) { return 0; }
 int ra2_modern_consume_right_drag_release(void) { return 0; }
+int ra2_modern_shift_box_begin(void) { return 0; }
+void ra2_modern_shift_box_decide(void) {}
+void ra2_modern_shift_box_end(void) {}
+int ra2_modern_box_object(int selected) { (void)selected; return 1; }
 
 /* ---- game-specific answers ------------------------------------------------ */
 

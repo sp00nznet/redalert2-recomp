@@ -241,6 +241,9 @@ MODERN_MOUSE_TARGETS = {
         'clear': 0x0048DC90, 'clear_skip': 'L_0048DCB1', 'clear_fn': 'sub_0048DC90',
         'after_left_up': 0x00693290,
         'type_select_down': 'sub_00732CA0', 'type_select_up': 'sub_00732CC0',
+        'box_walk': 0x004ABCEB, 'box_walk_fn': 'sub_006D9FF0',
+        'box_select': 0x004AC2F1, 'box_object': 'esi', 'is_selected': 0x83,
+        'select_slot': 0x14C, 'deselect_slot': 0x150,
         'selection_count': 0x00A8ECC8, 'selection_data': 0x00A8ECBC,
         'unit_vtable': 0x007F5C70, 'infantry_vtable': 0x007EB058,
         'aircraft_vtable': 0x007E22A4,
@@ -253,6 +256,9 @@ MODERN_MOUSE_TARGETS = {
         'clear': 0x00482BC0, 'clear_skip': 'L_00482BE1', 'clear_fn': 'sub_00482BC0',
         'after_left_up': 0x0066A5F0,
         'type_select_down': 'sub_006F7650', 'type_select_up': 'sub_006F7670',
+        'box_walk': 0x0049BE5B, 'box_walk_fn': 'sub_006AA610',
+        'box_select': 0x0049C470, 'box_object': 'edi', 'is_selected': 0x77,
+        'select_slot': 0x140, 'deselect_slot': 0x144,
         'selection_count': 0x00A40C70, 'selection_data': 0x00A40C64,
         'unit_vtable': 0x007ADDF8, 'infantry_vtable': 0x007A3540,
         'aircraft_vtable': 0x0079B12C,
@@ -333,6 +339,30 @@ def modern_mouse_patches(target):
             'RECOMP_CALL(%s); RECOMP_FLAGS_IN(); RECOMP_CALL(%s); RECOMP_FLAGS_IN(); } '
             'ra2_modern_end_left_up(); } '
             '/* optional F10 Modern mouse controls */') % (t['type_select_down'], t['type_select_up']),
+        # A Shift box over units that are all selected already removes them.
+        # With Shift held, walk the box once as a dry run (the walk clears the
+        # box it reads, so put it back), let the presenter decide, then walk it
+        # for real.
+        t['box_walk']: (
+            '@replace:{ extern int ra2_modern_shift_box_begin(void); '
+            'extern void ra2_modern_shift_box_decide(void); extern void ra2_modern_shift_box_end(void); '
+            'if (ra2_modern_shift_box_begin()) { '
+            'uint32_t _box_this = ecx, _box_cb = MEM32(esp); '
+            'uint32_t _box_a = MEM32(_box_this + 0xD90u), _box_b = MEM32(_box_this + 0xD94u); '
+            'PUSH32(esp, _box_cb); RECOMP_CALL(%s); RECOMP_FLAGS_IN(); '
+            'MEM32(_box_this + 0xD90u) = _box_a; MEM32(_box_this + 0xD94u) = _box_b; '
+            'ecx = _box_this; ra2_modern_shift_box_decide(); } '
+            'RECOMP_CALL(%s); ra2_modern_shift_box_end(); } '
+            '/* optional F10 Modern mouse controls */') % (t['box_walk_fn'], t['box_walk_fn']),
+        # The box walk's per-object Select(): skipped in the dry run, Deselect()
+        # when the whole box was already selected.
+        t['box_select']: (
+            '@replace:{ extern int ra2_modern_box_object(int); '
+            'int _box = ra2_modern_box_object(MEM8(%s + 0x%X) != 0); '
+            'if (_box == 1) RECOMP_ICALL(MEM32(edx + 0x%X)); '
+            'else { if (_box == 2) RECOMP_ICALL(MEM32(edx + 0x%X)); eax = 0; } } '
+            '/* optional F10 Modern mouse controls */') % (
+                t['box_object'], t['is_selected'], t['select_slot'], t['deselect_slot']),
         # The original right-up cleanup clears selection after camera pan.
         t['right_up']: (
             '@replace:{ extern int ra2_modern_consume_right_drag_release(void); '
