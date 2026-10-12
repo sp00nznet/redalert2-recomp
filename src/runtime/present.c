@@ -23,6 +23,7 @@
 #include <d3d11.h>
 #include <dxgi.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -106,20 +107,22 @@ static struct {
 
 static int g_mode;                       /* index into k_mode_names */
 static int g_bars = 1;                   /* the bars beside a letterboxed picture: 0 black, 1 blurred */
+/* Modern mouse controls (docs/modern-mouse-controls.md). The window procedure
+ * latches what the game's hooks need from the real mouse messages: */
 static volatile LONG g_modern_controls;  /* opt-in battlefield semantics */
-static volatile LONG g_modern_left_double_click_at;
-static volatile LONG g_modern_left_double_click_shift;
-static volatile LONG g_modern_additive_selection_at;
-
-static volatile LONG g_modern_shift_box_select;
-static volatile LONG g_modern_shift_box_dragged;
+static volatile LONG g_modern_left_double_click_at;    /* tick of a battlefield double-click */
+static volatile LONG g_modern_left_double_click_shift; /* ... made with Shift held */
+static volatile LONG g_modern_additive_selection_at;   /* tick a Shift-click added to the selection */
+static volatile LONG g_modern_shift_box_select;        /* Shift held during the left press */
+static volatile LONG g_modern_shift_box_dragged;       /* the left press became a drag */
+/* and the game thread's own right-button gesture state: */
 static int g_modern_right_click;         /* set while a routed right-up is resolved */
 static int g_modern_right_gesture;       /* right-down is awaiting click vs. drag */
-static int g_modern_right_pending;        /* synthetic left-up sent, native right-down next */
+static int g_modern_right_pending;       /* synthetic left-up sent, native right-down next */
 static int g_modern_right_drag;          /* native right-drag camera pan is active */
-static int g_modern_suppress_left_release; /* the handoff release must not issue a click */
+static int g_modern_suppress_left_release;   /* the handoff release must not issue a click */
 static int g_modern_suppress_right_deselect; /* a pan release must not clear selection */
-static POINT g_modern_right_origin;
+static POINT g_modern_right_origin;      /* screen point of the right press */
 static volatile LONG g_gw = 800, g_gh = 600;   /* the game's picture, last frame */
 static RECT g_dst;                       /* where it is drawn in the client area */
 static int g_fullscreen;
@@ -596,7 +599,7 @@ static LRESULT CALLBACK wndproc(HWND hw, UINT m, WPARAM w, LPARAM l) {
             if (w & MK_SHIFT) InterlockedExchange(&g_modern_shift_box_select, 1);
         }
 
-        if (m == WM_LBUTTONDBLCLK && InterlockedCompareExchange(&g_modern_controls, 0, 0)) {
+        if (m == WM_LBUTTONDBLCLK && modern_controls) {
             POINT p = { GET_X_LPARAM(l), GET_Y_LPARAM(l) };
             if (PtInRect(&g_dst, p)) {
                 InterlockedExchange(&g_modern_left_double_click_at, (LONG)GetTickCount());
@@ -828,7 +831,7 @@ uint32_t ra2_modern_mouse_message(uint32_t message, int special_mode_active) {
         input_live_map_right_to_left(0);
         return message;
     }
-    if (message == 0x0204u) {
+    if (message == WM_RBUTTONDOWN) {
         g_modern_right_gesture = 1;
         g_modern_right_pending = 0;
         g_modern_right_drag = 0;
@@ -836,13 +839,13 @@ uint32_t ra2_modern_mouse_message(uint32_t message, int special_mode_active) {
         g_modern_suppress_right_deselect = 0;
         GetCursorPos(&g_modern_right_origin);
         input_live_map_right_to_left(1);
-        return 0x0201u;                     /* WM_RBUTTONDOWN -> WM_LBUTTONDOWN */
+        return WM_LBUTTONDOWN;
     }
-    if (message == 0x0200u && g_modern_right_gesture && !g_modern_right_drag) {
+    if (message == WM_MOUSEMOVE && g_modern_right_gesture && !g_modern_right_drag) {
         if (g_modern_right_pending) {
             g_modern_right_pending = 0;
             g_modern_right_drag = 1;
-            return 0x0204u;                 /* start native pan after the left release was handled */
+            return WM_RBUTTONDOWN;          /* start native pan after the left release was handled */
         }
         POINT point;
         if (GetCursorPos(&point)) {
@@ -850,21 +853,17 @@ uint32_t ra2_modern_mouse_message(uint32_t message, int special_mode_active) {
             int dy = GetSystemMetrics(SM_CYDRAG);
             if (dx < 1) dx = 4;
             if (dy < 1) dy = 4;
-            if (point.x - g_modern_right_origin.x >= dx ||
-                g_modern_right_origin.x - point.x >= dx ||
-                point.y - g_modern_right_origin.y >= dy ||
-                g_modern_right_origin.y - point.y >= dy) {
+            if (abs(point.x - g_modern_right_origin.x) >= dx ||
+                abs(point.y - g_modern_right_origin.y) >= dy) {
                 g_modern_right_pending = 1;
                 g_modern_suppress_left_release = 1;
                 input_live_map_right_to_left(0);
-                return 0x0202u;             /* release the synthetic left-down without a click */
+                return WM_LBUTTONUP;        /* release the synthetic left-down without a click */
             }
         }
         return message;
     }
-    if (message == 0x0205u) {
-        int had_gesture = g_modern_right_gesture;
-        if (!had_gesture) return message;
+    if (message == WM_RBUTTONUP && g_modern_right_gesture) {
         int was_pending = g_modern_right_pending;
         int was_drag = g_modern_right_drag;
         g_modern_right_gesture = 0;
@@ -872,10 +871,10 @@ uint32_t ra2_modern_mouse_message(uint32_t message, int special_mode_active) {
         g_modern_right_drag = 0;
         g_modern_suppress_right_deselect = was_drag;
         input_live_map_right_to_left(0);
-        if (was_drag) return message;         /* preserve native right-up */
-        if (was_pending) return 0;             /* threshold crossed before a native pan could start */
+        if (was_drag) return message;       /* preserve native right-up */
+        if (was_pending) return 0;          /* threshold crossed before a native pan could start */
         g_modern_right_click = 1;
-        return 0x0202u;                     /* WM_RBUTTONUP -> WM_LBUTTONUP */
+        return WM_LBUTTONUP;
     }
     return message;
 }
@@ -890,92 +889,77 @@ uint32_t ra2_modern_radar_event_flags(uint32_t flags) {
         return flags;
     }
     input_live_swap_left_right(input_live_button_state() & (MK_LBUTTON | MK_RBUTTON));
-    uint32_t mapped = ((flags & 0x0Fu) << 4) | ((flags & 0xF0u) >> 4);
-    return mapped;
-}
-
-int ra2_modern_consume_left_release(void) {
-    int consume = g_modern_suppress_left_release;
-    g_modern_suppress_left_release = 0;
-    return consume;
+    return ((flags & 0x0Fu) << 4) | ((flags & 0xF0u) >> 4);
 }
 
 /* Results of ra2_modern_left_click_action besides the game's own action
- * values. The mouse-up patch at 0x00693271 in run_lift.py tests for these
- * exact values.
+ * values. The mouse-up patch in run_lift.py ('action' in MODERN_MOUSE_TARGETS)
+ * tests for these exact values.
  *
- * Action None (0) does not make the mouse-up handler (0x004AB9B0) a no-op:
- * with a selectable, unselected target it still takes the select branch
- * (0x004ABDE1). A click that must not select anything therefore passes None
- * with no target at all, which leaves the handler through its plain exit. */
+ * Action None does not make the mouse-up handler (0x004AB9B0) a no-op: with a
+ * selectable, unselected target it still takes the select branch (0x004ABDE1).
+ * A click that must not select anything therefore passes None with no target
+ * at all, which leaves the handler through its plain exit. */
 #define MODERN_CLICK_CLEAR_SELECTION 0xFFFFFFFFu /* clear the selection, then None */
 #define MODERN_CLICK_IGNORE          0xFFFFFFFEu /* None with the target dropped */
+
+/* The game's Action values the resolver rewrites. */
+enum { ACTION_NONE = 0, ACTION_MOVE = 1, ACTION_SELECT = 7, ACTION_TOGGLE_SELECT = 8 };
 
 uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target,
                                       uint32_t target_vtable, int selected_in_group,
                                       uint32_t selection_count, int special) {
     /* The release that hands a right-drag to the native pan is not a click. */
-    if (ra2_modern_consume_left_release()) return MODERN_CLICK_IGNORE;
+    if (g_modern_suppress_left_release) {
+        g_modern_suppress_left_release = 0;
+        return MODERN_CLICK_IGNORE;
+    }
     LONG double_click_at = InterlockedExchange(&g_modern_left_double_click_at, 0);
     int double_click = double_click_at &&
         (DWORD)(GetTickCount() - (DWORD)double_click_at) <= GetDoubleClickTime();
-    int additive_double_click = double_click &&
-        InterlockedExchange(&g_modern_left_double_click_shift, 0);
-    if (!double_click) InterlockedExchange(&g_modern_left_double_click_shift, 0);
+    int additive_double_click = InterlockedExchange(&g_modern_left_double_click_shift, 0) &&
+        double_click;
     if (!InterlockedCompareExchange(&g_modern_controls, 0, 0) || special)
         return action;
 
+    int selecting = action == ACTION_SELECT || action == ACTION_TOGGLE_SELECT;
     if (g_modern_right_click) {
-        /* A routed right-click issues contextual orders only. Select (7) and
-         * ToggleSelect (8) would change the selection, and None (0) can too
-         * (see MODERN_CLICK_IGNORE). Every other action passes through. */
-        return action == 0u || action == 7u || action == 8u ? MODERN_CLICK_IGNORE : action;
+        /* A routed right-click issues contextual orders only. Select and
+         * ToggleSelect would change the selection, and None can too (see
+         * MODERN_CLICK_IGNORE). Every other action passes through. */
+        return action == ACTION_NONE || selecting ? MODERN_CLICK_IGNORE : action;
     }
 
-    int selectable_unit = target_vtable == RA2_MODERN_UNIT_VTABLE ||
-                          target_vtable == RA2_MODERN_INFANTRY_VTABLE ||
-                          target_vtable == RA2_MODERN_AIRCRAFT_VTABLE;
-    if (!double_click && action == 1u && selectable_unit && target && !selected_in_group &&
+    int selectable_unit = target && (target_vtable == RA2_MODERN_UNIT_VTABLE ||
+                                     target_vtable == RA2_MODERN_INFANTRY_VTABLE ||
+                                     target_vtable == RA2_MODERN_AIRCRAFT_VTABLE);
+    if (!double_click && action == ACTION_MOVE && selectable_unit && !selected_in_group &&
         InterlockedCompareExchange(&g_modern_shift_box_select, 0, 0))
         InterlockedExchange(&g_modern_additive_selection_at, (LONG)GetTickCount());
 
     if (double_click && selectable_unit) {
-        /* Reuse the game's T command so its own on-screen and ownership rules apply. */
-        if (additive_double_click) {
+        /* Reuse the game's T command so its own on-screen and ownership rules
+         * apply. Shift keeps the old group while T selects the matching units. */
+        if (additive_double_click)
             InterlockedExchange(&g_modern_additive_selection_at, (LONG)GetTickCount());
-            /* Keep the old group while T selects the matching visible units. */
-            forward_key(WM_KEYDOWN, 'T', 0x00140001L);
-            forward_key(WM_KEYUP, 'T', 0xC0140001L);
-            return MODERN_CLICK_IGNORE;
-        }
         forward_key(WM_KEYDOWN, 'T', 0x00140001L);
         forward_key(WM_KEYUP, 'T', 0xC0140001L);
-        return action == 1u ? 7u : action == 7u || action == 8u ? action : 0u;
+        if (additive_double_click) return MODERN_CLICK_IGNORE;
+        return action == ACTION_MOVE ? ACTION_SELECT : selecting ? action : ACTION_NONE;
     }
 
-    if (selected_in_group && selection_count > 1 &&
-        (target_vtable == RA2_MODERN_UNIT_VTABLE ||
-         target_vtable == RA2_MODERN_INFANTRY_VTABLE ||
-         target_vtable == RA2_MODERN_AIRCRAFT_VTABLE)) {
-        /* Force the ordinary single-object path; it clears the group before
-         * adding the clicked unit back to the selection. */
-        return 7u;
-    }
+    /* A unit in a multi-unit selection: force the ordinary single-object path,
+     * which clears the group before adding the clicked unit back. */
+    if (selectable_unit && selected_in_group && selection_count > 1) return ACTION_SELECT;
 
-    if (!target) {
-        return action == 7u || action == 8u ? action : MODERN_CLICK_CLEAR_SELECTION;
-    }
-
-    if (action == 1u) return 7u;
-    return action == 7u || action == 8u ? action : 0u;
+    if (!target) return selecting ? action : MODERN_CLICK_CLEAR_SELECTION;
+    if (action == ACTION_MOVE) return ACTION_SELECT;
+    return selecting ? action : ACTION_NONE;
 }
 
-static int preserve_shift_box_selection(void) {
-    LONG modern = InterlockedCompareExchange(&g_modern_controls, 0, 0);
-    LONG latched = InterlockedExchange(&g_modern_shift_box_select, 0);
-    return modern && latched;
-}
-
+/* The shared selection-clear routine (sub_0048DC90 in Yuri's Revenge): skip it
+ * once after a Shift-click or Shift-double-click added to the selection, or at
+ * the end of a Shift box drag. */
 int ra2_modern_preserve_global_selection_clear(void) {
     LONG modern = InterlockedCompareExchange(&g_modern_controls, 0, 0);
     LONG additive_selection_at = InterlockedExchange(&g_modern_additive_selection_at, 0);
@@ -989,12 +973,11 @@ int ra2_modern_preserve_global_selection_clear(void) {
     return modern && dragged && shifted;
 }
 
-int ra2_modern_preserve_box_selection(void) {
-    return preserve_shift_box_selection();
-}
-
-int ra2_modern_preserve_object_selection(void) {
-    return preserve_shift_box_selection();
+/* The mouse-up handler's own box-selection and target-object clear calls. */
+int ra2_modern_preserve_shift_selection(void) {
+    LONG modern = InterlockedCompareExchange(&g_modern_controls, 0, 0);
+    LONG latched = InterlockedExchange(&g_modern_shift_box_select, 0);
+    return modern && latched;
 }
 
 int ra2_modern_consume_right_drag_release(void) {

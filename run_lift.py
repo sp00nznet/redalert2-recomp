@@ -326,8 +326,8 @@ def modern_mouse_patches(target):
         # The drag-selection release normally clears the selection before
         # applying the rectangle. Keep it when Shift is held in Modern mode.
         t['box_clear']: (
-            '@replace:{ extern int ra2_modern_preserve_box_selection(void); '
-            'if (!ra2_modern_preserve_box_selection()) RECOMP_CALL(%s); } '
+            '@replace:{ extern int ra2_modern_preserve_shift_selection(void); '
+            'if (!ra2_modern_preserve_shift_selection()) RECOMP_CALL(%s); } '
             '/* optional F10 Modern mouse controls */') % clear_fn,
         # The virtual mouse-up path can clear selection through this shared
         # routine instead of either mouse-up clear site above.
@@ -337,8 +337,8 @@ def modern_mouse_patches(target):
             '/* preserve existing selection during a Shift box drag */') % t['clear_skip'],
         # Mouse-up can also clear selection while processing a target object.
         t['object_clear']: (
-            '@replace:{ extern int ra2_modern_preserve_object_selection(void); '
-            'if (!ra2_modern_preserve_object_selection()) RECOMP_CALL(%s); } '
+            '@replace:{ extern int ra2_modern_preserve_shift_selection(void); '
+            'if (!ra2_modern_preserve_shift_selection()) RECOMP_CALL(%s); } '
             '/* optional F10 Modern mouse controls */') % clear_fn,
     }
     return patches

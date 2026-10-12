@@ -255,15 +255,13 @@ SHORT input_key_state(int vk, SHORT real) {
     if (!g_nev && g_live) {
         int mk = vk == VK_LBUTTON ? MK_LBUTTON : vk == VK_RBUTTON ? MK_RBUTTON : vk == VK_MBUTTON ? MK_MBUTTON : 0;
         if (mk) {
-            LONG buttons = g_live_buttons;
+            LONG held = g_live_buttons, buttons = held;
             if (InterlockedCompareExchange(&g_live_swap_left_right, 0, 0)) {
-                LONG held = buttons & (MK_LBUTTON | MK_RBUTTON);
                 buttons &= ~(MK_LBUTTON | MK_RBUTTON);
                 if (held & MK_LBUTTON) buttons |= MK_RBUTTON;
                 if (held & MK_RBUTTON) buttons |= MK_LBUTTON;
             }
-            if (InterlockedCompareExchange(&g_live_right_as_left, 0, 0) &&
-                (g_live_buttons & MK_RBUTTON))
+            if (InterlockedCompareExchange(&g_live_right_as_left, 0, 0) && (held & MK_RBUTTON))
                 buttons |= MK_LBUTTON;       /* retain RButton so native drag-scroll remains active */
             return (buttons & mk) ? (SHORT)0x8000 : 0;
         }
