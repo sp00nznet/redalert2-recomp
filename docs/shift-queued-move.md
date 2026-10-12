@@ -43,5 +43,6 @@ immediately, consider a direct append/commit path or split immediate movement
 from later queued destinations. Keep the waypoint sound and cursor effects out
 of Shift handling.
 
-This is a Yuri's Revenge (`gamemd.exe`) Modern mouse-controls idea. No waypoint
-implementation is currently active.
+This is a Modern mouse-controls idea. The planner addresses above are for
+Yuri's Revenge (`gamemd.exe`); a Red Alert 2 version would need the matching
+`game.exe` addresses. No waypoint implementation is currently active.

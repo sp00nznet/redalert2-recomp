@@ -8,7 +8,8 @@ choice in `ra2.ini` as `mousecontrols=classic` or `mousecontrols=modern`.
 
 Modern mode changes battlefield input; it does not change `rules.ini` or
 `rulesmd.ini`. Each game uses its own lifted hook addresses and engine globals.
-The native Linux host does not use the Windows presenter F10 menu.
+The native Linux host has no F10 menu: its hooks pass the game's input through
+unchanged, so it always plays with Classic controls.
 
 ## Behavior
 
@@ -16,7 +17,7 @@ The native Linux host does not use the Windows presenter F10 menu.
 | --- | --- |
 | Left-click a unit or building | Select it. |
 | Left-drag | Box-select. |
-| Left-click open battlefield ground | Clear selection without issuing Move. |
+| Left-click open battlefield ground | Clear selection without issuing an order. |
 | Right-click a battlefield cell or object | Issue the context-sensitive order. |
 | Right-click a unit | Issue its contextual order if the game offers one; never select the clicked unit or change the current selection. |
 | Right-drag | Pan the camera using the original game behavior. |
@@ -34,53 +35,58 @@ Active placement and order modes retain their original right-click behavior.
 The F10 shortcut on the presenter bars and menu/interface clicks are not
 remapped.
 
-These are explicit Modern-mode choices. Deploy and primary-building selection
-remain on right-click when the object is already selected. A double-right-click
-on an unselected deployable unit or building no longer triggers the old
-shortcut because its first click no longer selects the object. The user accepts
-that tradeoff for now; no replacement shortcut is planned.
-Double-left-click is reserved for selecting same-type units. Shift-click and
-Shift-double-click add units to the existing selection. Selecting one unit from
-an existing group is a Modern-mode improvement over the base game.
+**Known tradeoff:** because a right-click never selects, double-right-clicking
+an *unselected* deployable unit or building no longer deploys it or makes it
+primary. Select it first, then right-click it. No replacement shortcut is
+planned.
+
+**Known limitation:** double-left-click posts the `T` key to the game. If
+"select same type" is rebound in `Keyboard.ini`, Modern double-click follows
+whatever command `T` is bound to instead.
 
 ## Implementation notes
 
 ### Presenter and patch ownership
 
 `src/runtime/present.c` builds and saves the F10 choice for both targets. It
-coordinates the physical button state with the mouse messages delivered to the game;
-`src/runtime/input.c` provides the matching `GetKeyState` and
-`GetAsyncKeyState` behavior. Keep lifted-game changes in `run_lift.py`.
-`src/recomp/gen/` and `src/recomp/gen_game/` are generated and ignored by Git.
+coordinates the physical button state with the mouse messages delivered to the
+game; `src/runtime/input.c` provides the matching `GetKeyState` and
+`GetAsyncKeyState` behavior. Keep lifted-game changes in `run_lift.py`
+(`MODERN_MOUSE_TARGETS` and `modern_mouse_patches`). `src/recomp/gen/` and
+`src/recomp/gen_game/` are generated and ignored by Git. The Linux host
+defines the same hook functions as pass-throughs in `src/linux/main.c`.
 
 ### Battlefield event path
 
-`run_lift.py` patches the Yuri's Revenge dispatcher at `0x00693107` to route a
-short Modern right-click through the game's left-button bookkeeping, except
-when a placement or order mode needs its native right-up behavior. If the
-right-button gesture crosses the Windows drag threshold, the original
-right-drag camera pan continues.
+`run_lift.py` patches the battlefield mouse dispatcher (`0x00693107` in Yuri's
+Revenge) to route a short Modern right-click through the game's left-button
+bookkeeping, except when a placement or order mode needs its native right-up
+behavior. If the right-button gesture crosses the Windows drag threshold, the
+synthetic left press is released without a click and the original right-drag
+camera pan takes over.
 
-A short Modern right-click must not change the selection. The mouse-up hook
-at `0x00693271` runs after `DecideAction`. When a routed right-click resolves
-to `None` (0), `Select` (7) or `ToggleSelect` (8), the hook passes `None` and
-also clears the target slot that `LeftMouseButtonUp` receives. Replacing the
-action alone is not enough: `LeftMouseButtonUp` still selects a selectable,
-unselected target when the action is `None` (branch at `0x004ABDE1`). With no
-action and no target, it takes its plain exit at `0x004AC294`. Every other
-action, such as Move (1), passes through unchanged. The synthetic left release
-that hands a right-drag to the native camera pan is ignored in the same way,
-so a pan that starts over a unit does not select it. The mouse-down side
-needs no guard: `ConvertAction` and slot 45 only update the cursor and arm
-drag-selection. The user reports that the fix appears to work in game; the
-remaining right-click cases below still need coverage.
+The mouse-up hook at `0x00693271` runs after `DecideAction` and rewrites the
+resolved action:
 
-The left-click patch at `0x00693271` uses the game's resolved action and target.
-When an unmodified left-click on open ground resolves to `Move`, it calls
-`sub_0048DC90` to clear selection instead of issuing that move. Unit/object
-clicks and contextual right-click orders continue through the game's action
-handler. The right-drag release patch at `0x004AAE6E` prevents the game's
-ordinary right-up cleanup from clearing selection after a pan.
+- **Routed right-click.** If the action is `None` (0), `Select` (7) or
+  `ToggleSelect` (8), the hook passes `None` and also clears the target slot
+  that `LeftMouseButtonUp` receives. Replacing the action alone is not enough:
+  `LeftMouseButtonUp` still selects a selectable, unselected target when the
+  action is `None` (branch at `0x004ABDE1`). With no action and no target, it
+  takes its plain exit at `0x004AC294`. Every other action, such as Move (1),
+  passes through unchanged. The synthetic left release that hands a right-drag
+  to the camera pan is ignored the same way, so a pan that starts over a unit
+  does not select it. The mouse-down side needs no guard: `ConvertAction` and
+  slot 45 only update the cursor and arm drag-selection.
+- **Left-click on open ground.** With no target, any action other than
+  `Select`/`ToggleSelect` becomes a call to the selection-clear helper
+  (`sub_0048DC90`) followed by `None`, so no order is issued.
+- **Left-click on an object.** `Move` becomes `Select`; other non-selection
+  actions become `None`, which selects a selectable target through the branch
+  above and never issues an order.
+
+The right-up patch at `0x004AAE6E` stops the game's ordinary right-up cleanup
+from clearing the selection after a pan.
 
 The Yuri's Revenge lifted `DisplayClass` path is:
 
@@ -96,8 +102,7 @@ The Yuri's Revenge lifted `DisplayClass` path is:
 | `0x0048DC90` | — | Clear the current selection by calling each object's `Deselect()`. |
 
 The base-game lift has the same behavior on corresponding paths, with its own
-addresses and selected-object globals. These are static mappings; they do not
-by themselves verify Modern mode in game:
+addresses and selected-object globals:
 
 | Role | Yuri's Revenge | Red Alert 2 |
 | --- | --- | --- |
@@ -109,35 +114,40 @@ by themselves verify Modern mode in game:
 | Target-object cleanup | `0x004ABE4A` | `0x0049BFB4` |
 | Selection-clear helper | `0x0048DC90` | `0x00482BC0` |
 
-Modern double-left-click on a unit posts the game's `T` key, reusing the game's
-same-type selection rules. Shift-click and Shift-double-click skip the shared
-selection-clear loop once so the clicked unit or same-type group is added to the
-existing selection. The lifted action hook checks the target object's vtable to
-limit same-type selection to unit, infantry, and aircraft objects; it does not
-depend on the game's resolved action, which can vary with the current selection.
-The accepted unselected double-right-click tradeoff is described above.
+### Same-type and additive selection
+
+Modern double-left-click on a unit posts the game's `T` key, reusing the
+game's same-type selection rules. The action hook checks the target object's
+vtable to limit this to unit, infantry, and aircraft objects; it does not
+depend on the resolved action, which can vary with the current selection.
+
+Shift-click and Shift-double-click record a timestamp; the next call to the
+shared selection-clear helper within one second skips its deselection loop
+once, so the clicked unit or same-type group is added to the existing
+selection.
 
 When a plain left-click targets a unit that is already in a multi-unit
-selection, the click hook checks membership in the game's selected-object
-vector and routes the click through the normal single-object selection action.
-That action clears the group and selects the clicked unit. This behavior is
-implemented and verified in-game.
+selection, the hook checks membership in the game's selected-object vector and
+returns `Select`, whose single-object path clears the group and selects the
+clicked unit.
 
-For Shift box selection, the mouse-up path reaches the shared clear routine at
-`0x0048DC90`. Modern mode skips its deselection loop when Shift was held at the
-start of the drag or became held during it, then continues the routine's normal
-cleanup. The presenter's window procedure latches `MK_SHIFT` from mouse
-messages because the selection hook runs later in the game thread.
+For Shift box selection, the presenter's window procedure latches `MK_SHIFT`
+from the mouse messages, because the selection hooks run later on the game
+thread. When Shift was held at the start of the drag or became held during it,
+the box-selection and target-object clear calls are skipped
+(`ra2_modern_preserve_shift_selection`), as is the shared helper's deselection
+loop (`ra2_modern_preserve_global_selection_clear`); the helper's other cleanup
+still runs.
 
 ### Minimap event path
 
 The minimap uses `RTacticalClass@RadarClass::virtual_31` at `0x006539D0`.
-Its first byte argument carries left-button flags `0x01`/`0x04` and right-button
-flags `0x10`/`0x40`. The Modern patch at `0x006539D3`
-swaps the low and high nibbles, then writes the mapped byte back to the stack
-argument. Both the register and stack value matter: later branches in the same
-handler read the original argument directly. The helper also keeps the live
-button state consistent with the mapped radar event.
+Its first byte argument carries left-button flags `0x01`/`0x04` and
+right-button flags `0x10`/`0x40`. The Modern patch at `0x006539D3` swaps the
+low and high nibbles, then writes the mapped byte back to the stack argument.
+Both the register and stack value matter: later branches in the same handler
+read the original argument directly. The helper also keeps the live button
+state consistent with the mapped radar event.
 
 The lifted function names and callback roles were matched against the
 community-maintained [YRpp DisplayClass.h](https://github.com/Ares-Developers/YRpp/blob/master/DisplayClass.h),
@@ -146,27 +156,25 @@ community-maintained [YRpp DisplayClass.h](https://github.com/Ares-Developers/YR
 
 ## Manual verification
 
-Manual in-game verification:
+Checked by hand in Yuri's Revenge. The Red Alert 2 port builds from its own
+lift but has not been checked in game. The scripted playtest harness does not
+yet assert Modern-mode selection, minimap, or right-click behavior.
 
 | Case | Status |
 | --- | --- |
 | Select a unit with left-click; box-select with left-drag | Verified. |
 | Clear selection with left-click on open ground | Verified, including mixed land/naval selection. |
-| Left-click a friendly unit while another is selected | Selects the target without issuing Move. |
-| Left-click a naval yard with a selected ship | Does not trigger repair. |
-| Left-click an enemy turreted building with an attacking unit selected | Does not issue an attack order. Verified. |
-| Issue an order with right-click | Move verified; other target types still need more coverage. |
-| Right-click a unit without selecting it; start a right-drag over a unit without changing selection | User reports the fix appears to work. The full case matrix remains unverified. |
-| Left-click or right-click the minimap | Left-click recenters; right-click issues an order. |
-| Right-click drag, including repeated drags and pan direction | Camera pans correctly and preserves selection. Verified. |
-| Right-click an already selected deployable unit/building; double-right-click an unselected one | User accepts that unselected double-right-click no longer deploys/makes primary for now. Selected-target behavior still needs coverage. |
-| Double-left-click a unit to select visible units of its type | Latest report: seems to work; consistency still needs more coverage. |
-| Shift-click a unit; Shift-double-click a different unit type with another group selected | User reports it works in YR; base-game behavior remains unverified. |
-| Shift + left-drag a selection rectangle | Verified by the user: the existing selection is preserved and boxed units are added, with Shift held before or after dragging starts. |
+| Left-click a friendly unit while another is selected | Verified: selects the target without issuing Move. |
+| Left-click a naval yard with a selected ship | Verified: does not trigger repair. |
+| Left-click an enemy turreted building with an attacking unit selected | Verified: does not issue an attack order. |
+| Issue an order with right-click | Move verified; other target types need more coverage. |
+| Right-click a unit; start a right-drag over a unit | Appears to work: selection unchanged. Not covered exhaustively. |
+| Left-click or right-click the minimap | Verified: left-click recenters; right-click issues an order. |
+| Right-click drag, including repeated drags and pan direction | Verified: camera pans correctly and keeps the selection. |
+| Right-click an already selected deployable unit/building | Not yet checked. |
+| Double-left-click a unit to select visible units of its type | Appears to work; needs more coverage. |
+| Shift-click a unit; Shift-double-click a different unit type with another group selected | Verified. |
+| Shift-click a unit that is already in a group selection | Not yet checked. |
+| Shift + left-drag a selection rectangle | Verified: keeps the existing selection and adds the boxed units, with Shift held before or after the drag starts. |
 | Left-click a unit already in a group selection | Verified: replaces the group with the clicked unit. |
-| Special placement/order modes and interface clicks | Verified for the reported cases; not exhaustive. |
-
-The entries below record previous Yuri's Revenge manual checks. The base-game
-port has been built but remains unverified in game. The scripted playtest
-harness does not yet assert Modern-mode selection, minimap, or right-click
-behavior.
+| Special placement/order modes and interface clicks | Verified for the cases tried; not exhaustive. |
