@@ -2,13 +2,13 @@
 
 ## Purpose and scope
 
-The F10 menu offers **Classic** and **Modern** mouse controls for Yuri's
-Revenge. Classic remains the default. The presenter saves the choice in
-`ra2.ini` as `mousecontrols=classic` or `mousecontrols=modern`.
+The F10 menu offers **Classic** and **Modern** mouse controls in both Red Alert
+2 and Yuri's Revenge. Classic remains the default. The presenter saves the
+choice in `ra2.ini` as `mousecontrols=classic` or `mousecontrols=modern`.
 
 Modern mode changes battlefield input; it does not change `rules.ini` or
-`rulesmd.ini`. The implementation covers the Yuri's Revenge presenter build.
-Red Alert 2 and the native Linux host are not wired to this option.
+`rulesmd.ini`. Each game uses its own lifted hook addresses and engine globals.
+The native Linux host does not use the Windows presenter F10 menu.
 
 ## Behavior
 
@@ -47,11 +47,11 @@ an existing group is a Modern-mode improvement over the base game.
 
 ### Presenter and patch ownership
 
-`src/runtime/present.c` builds and saves the F10 choice. It coordinates the
-physical button state with the mouse messages delivered to the game;
+`src/runtime/present.c` builds and saves the F10 choice for both targets. It
+coordinates the physical button state with the mouse messages delivered to the game;
 `src/runtime/input.c` provides the matching `GetKeyState` and
 `GetAsyncKeyState` behavior. Keep lifted-game changes in `run_lift.py`.
-`src/recomp/gen/` is generated and ignored by Git.
+`src/recomp/gen/` and `src/recomp/gen_game/` are generated and ignored by Git.
 
 ### Battlefield event path
 
@@ -82,7 +82,7 @@ clicks and contextual right-click orders continue through the game's action
 handler. The right-drag release patch at `0x004AAE6E` prevents the game's
 ordinary right-up cleanup from clearing selection after a pan.
 
-The relevant lifted `DisplayClass` path is:
+The Yuri's Revenge lifted `DisplayClass` path is:
 
 | Address | YRpp name | Role |
 | --- | --- | --- |
@@ -95,12 +95,27 @@ The relevant lifted `DisplayClass` path is:
 | `0x004AAD30` | `RightMouseButtonUp` (slot 49) | Cancel active modes; its ordinary fallback clears selection. |
 | `0x0048DC90` | — | Clear the current selection by calling each object's `Deselect()`. |
 
-Modern double-left-click on a unit posts the game's `T` key after the click is
-handled, reusing the game's same-type selection rules. The lifted action hook
-checks the target object's vtable to limit this to unit, infantry, and aircraft
-objects; it does not depend on the game's resolved action, which can vary with
-the current selection. The accepted unselected double-right-click tradeoff is
-described above.
+The base-game lift has the same behavior on corresponding paths, with its own
+addresses and selected-object globals. These are static mappings; they do not
+by themselves verify Modern mode in game:
+
+| Role | Yuri's Revenge | Red Alert 2 |
+| --- | --- | --- |
+| Mouse message dispatch / right-click remap | `0x00693107` | `0x0066A467` |
+| Minimap button flags | `0x006539D3` (stack `+0x48`) | `0x0062FE33` (stack `+0x44`) |
+| Mouse-up resolved action | `0x00693271` | `0x0066A5D1` |
+| Right-up selection cleanup | `0x004AAE6E` | `0x0049B0CE` |
+| Box-selection cleanup | `0x004ABCD4` | `0x0049BE44` |
+| Target-object cleanup | `0x004ABE4A` | `0x0049BFB4` |
+| Selection-clear helper | `0x0048DC90` | `0x00482BC0` |
+
+Modern double-left-click on a unit posts the game's `T` key, reusing the game's
+same-type selection rules. Shift-click and Shift-double-click skip the shared
+selection-clear loop once so the clicked unit or same-type group is added to the
+existing selection. The lifted action hook checks the target object's vtable to
+limit same-type selection to unit, infantry, and aircraft objects; it does not
+depend on the game's resolved action, which can vary with the current selection.
+The accepted unselected double-right-click tradeoff is described above.
 
 When a plain left-click targets a unit that is already in a multi-unit
 selection, the click hook checks membership in the game's selected-object
@@ -146,9 +161,12 @@ Manual in-game verification:
 | Right-click drag, including repeated drags and pan direction | Camera pans correctly and preserves selection. Verified. |
 | Right-click an already selected deployable unit/building; double-right-click an unselected one | User accepts that unselected double-right-click no longer deploys/makes primary for now. Selected-target behavior still needs coverage. |
 | Double-left-click a unit to select visible units of its type | Latest report: seems to work; consistency still needs more coverage. |
+| Shift-click a unit; Shift-double-click a different unit type with another group selected | User reports it works in YR; base-game behavior remains unverified. |
 | Shift + left-drag a selection rectangle | Verified by the user: the existing selection is preserved and boxed units are added, with Shift held before or after dragging starts. |
 | Left-click a unit already in a group selection | Verified: replaces the group with the clicked unit. |
 | Special placement/order modes and interface clicks | Verified for the reported cases; not exhaustive. |
 
-The in-game checks are manual. The scripted playtest harness does not yet
-assert Modern-mode selection, minimap, or right-click behavior.
+The entries below record previous Yuri's Revenge manual checks. The base-game
+port has been built but remains unverified in game. The scripted playtest
+harness does not yet assert Modern-mode selection, minimap, or right-click
+behavior.

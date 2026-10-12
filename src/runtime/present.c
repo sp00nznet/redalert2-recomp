@@ -488,9 +488,7 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     POINT at;
     HMENU m = CreatePopupMenu(), sc = CreatePopupMenu(), bars = CreatePopupMenu(), res = CreatePopupMenu();
     HMENU mods = CreatePopupMenu();
-#ifdef RA2_TARGET_GAMEMD
     HMENU mouse = CreatePopupMenu();
-#endif
     static char mod_names[MAX_MENU_MODS][128];
     int nmods = mods_list(mod_names, MAX_MENU_MODS);
     static const char* const scale_label[NMODES] = { "Sharp (default)", "Smooth", "CRT", "Nearest", "Integer" };
@@ -508,13 +506,11 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     AppendMenuA(m, MF_POPUP, (UINT_PTR)bars, "Bars beside the picture");
     AppendMenuA(m, MF_STRING | (g_fullscreen ? MF_CHECKED : 0), ID_FULL, "Fullscreen\tF11");
     AppendMenuA(m, MF_STRING | (ra2_vox_hd_show ? MF_CHECKED : 0), ID_HDVOX, "HD vehicles (voxels at 2x)");
-#ifdef RA2_TARGET_GAMEMD
     AppendMenuA(mouse, MF_STRING | (InterlockedCompareExchange(&g_modern_controls, 0, 0) ? 0 : MF_CHECKED),
                 ID_MOUSE, "Classic");
     AppendMenuA(mouse, MF_STRING | (InterlockedCompareExchange(&g_modern_controls, 0, 0) ? MF_CHECKED : 0),
                 ID_MOUSE + 1, "Modern");
     AppendMenuA(m, MF_POPUP, (UINT_PTR)mouse, "Mouse controls");
-#endif
     AppendMenuA(m, MF_SEPARATOR, 0, NULL);
     AppendMenuA(m, MF_POPUP, (UINT_PTR)res, "Game resolution (next game)");
     /* the mods in mods\<game>: choosing one restarts the game with it (mods.c) */
@@ -530,10 +526,8 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     else if (cmd == ID_BARS || cmd == ID_BARS + 1) g_bars = cmd - ID_BARS;
     else if (cmd == ID_FULL) set_fullscreen(hw, !g_fullscreen);
     else if (cmd == ID_HDVOX) ra2_vox_hd_show = !ra2_vox_hd_show;  /* takes effect next frame */
-#ifdef RA2_TARGET_GAMEMD
     else if (cmd == ID_MOUSE || cmd == ID_MOUSE + 1)
         InterlockedExchange(&g_modern_controls, cmd - ID_MOUSE);
-#endif
     else if (cmd >= ID_RES && cmd < ID_RES + NRES) set_game_resolution(k_res[cmd - ID_RES][0], k_res[cmd - ID_RES][1]);
     else if (cmd >= ID_MOD && cmd <= ID_MOD + nmods) {
         const char* name = cmd == ID_MOD ? "" : mod_names[cmd - ID_MOD - 1];
@@ -938,9 +932,9 @@ uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target,
         return action == 0u || action == 7u || action == 8u ? MODERN_CLICK_IGNORE : action;
     }
 
-    int selectable_unit = target_vtable == 0x007F5C70u || /* UnitClass */
-                          target_vtable == 0x007EB058u || /* InfantryClass */
-                          target_vtable == 0x007E22A4u; /* AircraftClass */
+    int selectable_unit = target_vtable == RA2_MODERN_UNIT_VTABLE ||
+                          target_vtable == RA2_MODERN_INFANTRY_VTABLE ||
+                          target_vtable == RA2_MODERN_AIRCRAFT_VTABLE;
     if (!double_click && action == 1u && selectable_unit && target && !selected_in_group &&
         InterlockedCompareExchange(&g_modern_shift_box_select, 0, 0))
         InterlockedExchange(&g_modern_additive_selection_at, (LONG)GetTickCount());
@@ -960,9 +954,9 @@ uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target,
     }
 
     if (selected_in_group && selection_count > 1 &&
-        (target_vtable == 0x007F5C70u || /* UnitClass */
-         target_vtable == 0x007EB058u || /* InfantryClass */
-         target_vtable == 0x007E22A4u)) { /* AircraftClass */
+        (target_vtable == RA2_MODERN_UNIT_VTABLE ||
+         target_vtable == RA2_MODERN_INFANTRY_VTABLE ||
+         target_vtable == RA2_MODERN_AIRCRAFT_VTABLE)) {
         /* Force the ordinary single-object path; it clears the group before
          * adding the clicked unit back to the selection. */
         return 7u;
