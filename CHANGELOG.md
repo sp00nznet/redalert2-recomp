@@ -6,6 +6,18 @@ versions follow [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **macOS, natively** (no Wine, no CrossOver): `build-macos/ra2` (Yuri's
+  Revenge) and `build-macos-game/ra2` (Red Alert 2), the same lifted C and
+  `src/linux` host as the Linux build, as 64-bit Mac programs built with
+  Apple's clang (`build-macos.sh`; `setup.sh` builds them by default on a Mac,
+  `--wine` for the CrossOver path). macOS has no 32-bit programs, so the
+  game's 4 GB address space is an arena inside the process (pcrecomp's
+  `win32hle/hle_mem.c`, at `RA2_MEM_BASE`), and win32hle crosses between guest
+  addresses and host pointers explicitly (`HLE_PTR`/`HLE_VA`). The playtest
+  suite: 30 of 30 for each game on Apple Silicon, headless; the windowed game
+  runs on SDL2's Metal renderer with CoreAudio sound. `ra2_exe_path` finds
+  the program on macOS (`ra2.ini`, mods, a mod switch's restart), and the
+  debug log formats the guest's 4-byte varargs itself on a 64-bit host.
 - **Mods**: a mod is a folder in `mods/yr/` or `mods/ra2/`, laid over the
   game's folder without changing it (its files read first, what the game
   writes going into it, its maps and `expandmd*.mix` listed with the game's).

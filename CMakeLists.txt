@@ -1,9 +1,12 @@
 # =============================================================================
-# Red Alert 2: Yuri's Revenge - static recompilation host (32-bit, MSVC x86)
+# Red Alert 2: Yuri's Revenge - static recompilation host
 #
 #   py -3 run_lift.py        # -> src/recomp/gen/  (needs work/functions.json)
 #   build.cmd                # vcvarsall x86 + CMake + Ninja -> build/ra2.exe
 #   build\ra2.exe --run --watchdog 60
+#
+# Windows: 32-bit, MSVC x86 (or clang-cl). Linux: 32-bit, gcc -m32
+# (build-linux.sh). macOS: 64-bit, Apple clang (build-macos.sh).
 # =============================================================================
 cmake_minimum_required(VERSION 3.20)
 # The C runtime linked in (/MT): ra2.exe runs on a PC without the x86 Visual
@@ -11,7 +14,7 @@ cmake_minimum_required(VERSION 3.20)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 project(ra2 C)
 
-if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
+if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT APPLE)
   message(FATAL_ERROR "the host must be 32-bit: use build.cmd (vcvarsall x86), or on Linux build-linux.sh")
 endif()
 if(NOT CMAKE_BUILD_TYPE)
@@ -32,8 +35,12 @@ if(NOT GEN_SOURCES)
   message(FATAL_ERROR "${GEN_DIR} is empty -- run ./setup.sh (Setup.cmd on Windows) first: it lifts each game")
 endif()
 
-# ---- native Linux: the lifted C on runtime/win32hle (cmake/linux-i386.cmake)
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+# ---- native Linux and macOS: the lifted C on runtime/win32hle
+# Linux is a 32-bit program (cmake/linux-i386.cmake), the guest's addresses
+# its own. macOS has no 32-bit programs: a 64-bit one keeps the guest's 4 GB
+# in an arena at RA2_MEM_BASE (runtime/win32hle/hle_mem.c), and every guest
+# address is an offset into it.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE)
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
   pkg_check_modules(SDL2_TTF REQUIRED IMPORTED_TARGET SDL2_ttf)
@@ -43,7 +50,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   list(FILTER HLE_SOURCES EXCLUDE REGEX "_selftest\.c$")
   add_executable(ra2 src/linux/main.c src/linux/blowfish.c src/linux/script.c src/linux/mods.c src/runtime/hdvox.c ${HLE_SOURCES} ${GEN_SOURCES})
   target_include_directories(ra2 PRIVATE src/linux src/runtime ${GEN_DIR} ${HLE} ${PCRECOMP}/runtime/recomp32)
-  target_compile_definitions(ra2 PRIVATE RECOMP_RETADDR=0u RECOMP_FLAT_MEMORY RECOMP_LOCAL_REGS HLE_WITH_FFMPEG)
+  target_compile_definitions(ra2 PRIVATE RECOMP_RETADDR=0u RECOMP_LOCAL_REGS HLE_WITH_FFMPEG)
+  if(APPLE)
+    # Free on arm64 and x86-64 alike: above the executable, the shared cache
+    # and the heaps the system places, below the stacks.
+    set(RA2_MEM_BASE "0x100000000000ull" CACHE STRING "host address of the guest's 4 GB (macOS)")
+    target_compile_definitions(ra2 PRIVATE RECOMP_MEM_BASE=${RA2_MEM_BASE} _DARWIN_C_SOURCE)
+  else()
+    target_compile_definitions(ra2 PRIVATE RECOMP_FLAT_MEMORY)
+  endif()
   set(GEN_OPT "-O2" CACHE STRING "optimisation for the generated C")
   set_source_files_properties(${GEN_SOURCES} PROPERTIES COMPILE_OPTIONS "-w;${GEN_OPT};-fno-strict-aliasing;-fwrapv")
   target_compile_options(ra2 PRIVATE -fno-strict-aliasing -fwrapv)

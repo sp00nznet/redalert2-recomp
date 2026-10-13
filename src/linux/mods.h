@@ -7,3 +7,7 @@
 void mods_start(const char *game_dir, const char *requested, const char *remembered,
                 int argc, char **argv, void (*save)(void));
 const char *mods_active(void);   /* "" when none */
+
+/* This program's own path (main.c): /proc/self/exe on Linux, the loader's
+ * answer on macOS. "" if unknown. */
+void ra2_exe_path(char *out, unsigned long n);

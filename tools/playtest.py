@@ -49,8 +49,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # is Yuri's Revenge (gamemd.exe, build\).
 TARGET = os.environ.get('RA2_TARGET', 'gamemd')
 GAME_EXE, GAME_INI = ('game.exe', 'RA2.INI') if TARGET == 'game' else ('gamemd.exe', 'RA2MD.INI')
-# On Linux the native host (build-linux.sh) is the default once it is built.
-NATIVE_HOST = os.path.join(ROOT, 'build-linux-game' if TARGET == 'game' else 'build-linux', 'ra2')
+# On Linux and macOS the native host (build-linux.sh, build-macos.sh) is the
+# default once it is built.
+_NATIVE_DIR = 'build-macos' if sys.platform == 'darwin' else 'build-linux'
+NATIVE_HOST = os.path.join(ROOT, _NATIVE_DIR + ('-game' if TARGET == 'game' else ''), 'ra2')
 HOST = os.environ.get('RA2_EXE') or (NATIVE_HOST if os.name != 'nt' and os.path.exists(NATIVE_HOST)
                                      else os.path.join(ROOT, 'build-game' if TARGET == 'game' else 'build', 'ra2.exe'))
 NATIVE = os.name != 'nt' and not HOST.lower().endswith('.exe')

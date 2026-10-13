@@ -95,7 +95,9 @@ static void restart_with(const char *name) {
     fprintf(stderr, "[mods] restarting with %s\n", name[0] ? name : "the game as it shipped");
     fflush(NULL);
     if (g_start_dir[0] && chdir(g_start_dir) != 0) fprintf(stderr, "[mods] cannot go back to %s\n", g_start_dir);
-    execv("/proc/self/exe", argv);
+    char exe[PATH_MAX];
+    ra2_exe_path(exe, sizeof exe);
+    execv(exe, argv);
     fprintf(stderr, "[mods] could not restart: %s\n", strerror(errno));
 }
 
@@ -121,8 +123,7 @@ void mods_start(const char *game_dir, const char *requested, const char *remembe
                 int argc, char **argv, void (*save)(void)) {
     g_argc = argc, g_argv = argv, g_save = save;
     char exe[PATH_MAX];
-    ssize_t len = readlink("/proc/self/exe", exe, sizeof exe - 1);
-    exe[len > 0 ? len : 0] = 0;
+    ra2_exe_path(exe, sizeof exe);
     char *slash = strrchr(exe, '/');
     if (slash) *slash = 0;                     /* the build directory; mods/ is beside it */
     snprintf(g_root, sizeof g_root, "%s/../mods/" MODS_GAME, exe);

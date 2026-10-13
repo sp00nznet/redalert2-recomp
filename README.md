@@ -48,15 +48,17 @@ for comparison.
   with a script for each side to play a match start unattended
   (docs/testing.md).
 - **Windows, Linux and macOS**: on Windows the C runtime is linked in, so
-  there is no Visual C++ redistributable to install. On Linux the game also
-  runs **natively, with no Wine**: the same lifted C on pcrecomp's own
+  there is no Visual C++ redistributable to install. On Linux and macOS the
+  game runs **natively, with no Wine**: the same lifted C on pcrecomp's own
   implementation of the Windows API, with SDL2 for the window and sound and
-  ffmpeg for the Bink movies ([Linux, native](#linux-native)). On macOS (and
-  Linux) the exe is cross-built with clang-cl and played under CrossOver or
-  Wine ([macOS and Linux, under Wine](#macos-and-linux-under-wine)). `--mute`
-  for silent runs.
+  ffmpeg for the Bink movies ([Linux, native](#linux-native),
+  [macOS, native](#macos-native)). On a Mac that is a 64-bit program, with
+  the game's 32-bit address space kept inside it. The
+  Windows exe can still be cross-built with clang-cl and played under
+  CrossOver or Wine ([macOS and Linux, under Wine](#macos-and-linux-under-wine)).
+  `--mute` for silent runs.
 
-## Status: **v0.1.0-dev, playable.** The whole game lifts with 0 errors and plays: every main-menu screen, skirmishes from setup to the score screen, and both campaigns, in the presenter or headless, checked by a scripted test suite; on Windows, natively on Linux, and under Wine and CrossOver.
+## Status: **v0.1.0-dev, playable.** The whole game lifts with 0 errors and plays: every main-menu screen, skirmishes from setup to the score screen, and both campaigns, in the presenter or headless, checked by a scripted test suite; on Windows, natively on Linux and macOS, and under Wine and CrossOver.
 
 | Stage | State |
 |---|---|
@@ -72,6 +74,7 @@ for comparison.
 | Headless mode | `--headless --record out.mp4 --frames N`: hidden window, no mode change, the primary surface recorded to ffmpeg ([host.md](docs/host.md)) |
 | Multiplayer | RA2 against RA2 over the LAN between two PCs, scripted on both sides into the game ([testing.md](docs/testing.md)) |
 | Native Linux (`build-linux/ra2`, pcrecomp `win32hle`) | both games as Linux programs, no Wine: the Bink movies, every menu, skirmishes, both campaigns, saves, HD vehicles; the playtest suite in Docker ([Linux, native](#linux-native)) |
+| Native macOS (`build-macos/ra2`, pcrecomp `win32hle`) | both games as 64-bit Mac programs, no Wine and no CrossOver: the guest's 4 GB in an arena, the menus, the Bink movies, skirmishes, both campaigns, 720p to 4K, in a Metal window or headless; the playtest suite 30 of 30 for each game ([macOS, native](#macos-native)) |
 | Red Alert 2 (`game.exe`) | a second target from the same install: 23,201 functions, 0 lift errors, the suite at 30 of 30, 720p to 4K, HD vehicles ([bringup.md](docs/bringup.md), section 13) |
 | macOS and Linux, under Wine | the Windows build cross-compiled with clang-cl and xwin, played under Wine or CrossOver ([Linux and macOS](#macos-and-linux-under-wine)) |
 | Mods | a folder in `mods/`, laid over the game's without changing it, switched in game (F10, F9 on Linux) ([mods/README.md](mods/README.md)) |
@@ -133,7 +136,7 @@ exes are only signed differently. One install has both games, and both are built
 Nothing from the game is in this repository and nothing is
 downloaded for you. The lifted C is generated on your machine from your copy
 and is never distributed. On Linux, see [Linux, native](#linux-native); on
-macOS, [macOS and Linux, under Wine](#macos-and-linux-under-wine).
+macOS, [macOS, native](#macos-native).
 
 ### Quick start
 
@@ -275,6 +278,68 @@ movies and menus in a window on an Xfce desktop. Not on this host:
 `--original` (it runs the shipping machine code on Windows), the F10
 settings menu, and a LAN game against a Windows player (untried).
 
+### macOS, native
+
+`build-macos/ra2` (Yuri's Revenge) and `build-macos-game/ra2` (Red Alert 2)
+are Mac programs: the same lifted C and the same `src/linux` host as the
+Linux build, on pcrecomp's `runtime/win32hle`, built with Apple's clang. No
+Wine, no CrossOver and no Windows DLLs; the game folder is only data. Tested
+on Apple Silicon; nothing in it is arm64's, so an Intel Mac should build it
+the same way (untried).
+
+macOS has no 32-bit programs, so this one is 64-bit and keeps the game's
+4 GB address space in an arena of its own (pcrecomp's `win32hle/hle_mem.c`,
+at a fixed address, `RA2_MEM_BASE`): a guest address is an offset into it,
+the image is mapped at its own address there, and everything the game is
+handed (its heap, surfaces, COM objects, the structs a window procedure
+reads) comes from it. The first 64 KB are left unmapped, so a null pointer
+still faults.
+
+You need your copy of the game in a folder on the Mac (the Steam or EA App
+install, copied off a PC, or the folder from a CrossOver bottle), Xcode's
+command line tools (`xcode-select --install`) and Homebrew. Then:
+
+```
+./setup.sh
+```
+
+It offers to install Homebrew's `cmake`, `ninja`, `pkgconf`, `sdl2`,
+`sdl2_ttf`, `ffmpeg` and `uv`; puts `pefile` and `capstone` in a `.venv`;
+clones pcrecomp beside this folder (or uses `../tools`, or `PCRECOMP`); finds
+the game in your CrossOver bottles or asks for its folder and links `game/`
+to it; and catalogs, lifts and builds each game. On an Apple Silicon Mac the
+catalog takes about 5 minutes a game, the lift a minute, the build 5 to 10.
+It leaves `Yuri's Revenge (recomp).command` and `Red Alert 2 (recomp).command`
+here: double-click either to play.
+
+By hand, it is *Step by step* with `python3` (or `.venv/bin/python`) for
+`py -3` and `./build-macos.sh` for `build.cmd` (`BUILD_DIR=build-macos-game
+CMAKE_ARGS=-DRA2_TARGET=game` for Red Alert 2), then `build-macos/ra2 --run`.
+It needs a pcrecomp with the 64-bit win32hle (`runtime/win32hle/hle_mem.c`);
+`setup.sh` says so if yours is older.
+
+Everything the Linux host does, this one does: F12 cycles the scaling, F11
+(or Alt+Enter) is fullscreen, F9 at the main menu switches mods, `ra2.ini`
+beside the program remembers them, and `--headless`, `--record`, `--mute`,
+`--hd-voxels`, `--seed` and the scripted input work as on Windows.
+`tools/playtest.py` runs the native build when it is there. The fonts the
+menus' dialogs use are the Mac's own Arial, Times New Roman and Courier New.
+
+| Where | Yuri's Revenge | Red Alert 2 |
+|---|---|---|
+| macOS 26, native, headless (Apple Silicon) | 30 of 30 | 30 of 30 |
+
+The suite ran on an install whose exes are the 2001 retail code with an
+online patch, not Steam's: it still has the launcher and copy-protection
+checks that the Steam and EA App builds return true from (docs/RECON.md), and
+those three functions were made to return true for the runs, as Steam's do.
+The windowed game was played to the main menu on SDL2's Metal renderer with
+CoreAudio sound.
+
+Not on this host, as on Linux: `--original` (the shipping machine code runs
+only on Windows), the F10 settings menu, and LAN games against other PCs
+(untried).
+
 ### macOS and Linux, under Wine
 
 The same `ra2.exe`, cross-compiled with clang-cl and played under Wine:
@@ -285,10 +350,11 @@ install it from Steam (which runs it with Proton) or have the folder anywhere.
 Then:
 
 ```
-./setup.sh
+./setup.sh --wine
 ```
 
-On a Mac it checks for and offers to install Homebrew's `llvm`, `lld`,
+On a Mac (where `--wine` is needed, as on Linux: both build natively
+otherwise) it checks for and offers to install Homebrew's `llvm`, `lld`,
 `cmake`, `ninja`, `xwin` and `uv`. On Linux it lists what your package manager
 should install (clang-cl, lld, llvm, cmake, ninja, wine and Python 3) and
 offers to download `xwin`'s release binary. Either way it asks before xwin
