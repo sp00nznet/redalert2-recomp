@@ -107,7 +107,7 @@ static struct {
 
 static int g_mode;                       /* index into k_mode_names */
 static int g_bars = 1;                   /* the bars beside a letterboxed picture: 0 black, 1 blurred */
-/* Modern mouse controls (docs/modern-mouse-controls.md). The window procedure
+/* Modern mouse controls (docs/mouse-controls.md). The window procedure
  * latches what the game's hooks need from the real mouse messages: */
 static volatile LONG g_modern_controls;  /* opt-in battlefield semantics */
 static volatile LONG g_modern_left_double_click_at;    /* tick of a battlefield double-click */

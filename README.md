@@ -36,9 +36,8 @@ for comparison.
   and the window's place in `build\ra2.ini`.
 - **Modern mouse controls** (F10): left-click to select,
   left-click open ground to clear selection, and right-click to issue orders;
-  Classic controls remain available (docs/modern-mouse-controls.md).
-- **Queue Five** (`RA2-QOL-001`): Shift-click a production
-  cameo to queue five of that item (docs/queue-five.md).
+  Classic controls remain available. **Queue Five**: Shift-click a build icon
+  in the sidebar to queue five of that item (docs/mouse-controls.md).
 - **High resolution and widescreen**: 1280x720 up to 3840x2160 in game, more
   of the battlefield on screen. 4K needed a fix to RA2's own sidebar, which
   overran its button array (docs/hires.md).

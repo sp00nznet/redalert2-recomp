@@ -391,7 +391,7 @@ def modern_mouse_patches(target):
 
 
 def queue_five_patches(target):
-    """Shift-click a sidebar cameo to enqueue five productions."""
+    """Shift-click a sidebar build icon to queue five of it (docs/mouse-controls.md)."""
     t = QUEUE_FIVE_TARGETS[target]
 
     def after_production_event():

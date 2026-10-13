@@ -27,7 +27,7 @@ applies to both games, and is saved as
 `mousecontrols=classic` or `mousecontrols=modern` in `ra2.ini`. Active
 placement and order modes keep their original right-click cancellation.
 The implementation notes and test ledger are in
-[modern-mouse-controls.md](modern-mouse-controls.md).
+[mouse-controls.md](mouse-controls.md).
 
 ## Settings
 

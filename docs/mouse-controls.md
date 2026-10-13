@@ -1,17 +1,27 @@
-# Modern mouse controls
+# Mouse controls
 
-## Purpose and scope
+Two additions to the games' mouse controls, both in Red Alert 2 and Yuri's
+Revenge:
+
+- **Modern mouse controls** (F10 menu): left-click selects, right-click
+  orders.
+- **Queue Five** (`RA2-QOL-001`, always on): Shift-click a build icon in the
+  sidebar to queue five of that item.
+
+Neither changes `rules.ini` or `rulesmd.ini`.
+
+## Modern mouse controls
 
 The F10 menu offers **Classic** and **Modern** mouse controls in both Red Alert
 2 and Yuri's Revenge. Classic remains the default. The presenter saves the
 choice in `ra2.ini` as `mousecontrols=classic` or `mousecontrols=modern`.
 
-Modern mode changes battlefield input; it does not change `rules.ini` or
-`rulesmd.ini`. Each game uses its own lifted hook addresses and engine globals.
+Modern mode changes battlefield input only. Each game uses its own lifted hook
+addresses and engine globals.
 The native Linux host has no F10 menu: its hooks pass the game's input through
 unchanged, so it always plays with Classic controls.
 
-## Behavior
+### Behavior
 
 | Input | Modern behavior |
 | --- | --- |
@@ -42,9 +52,9 @@ an *unselected* deployable unit or building no longer deploys it or makes it
 primary. Select it first, then right-click it. No replacement shortcut is
 planned.
 
-## Implementation notes
+### Implementation notes
 
-### Presenter and patch ownership
+#### Presenter and patch ownership
 
 `src/runtime/present.c` builds and saves the F10 choice for both targets. It
 coordinates the physical button state with the mouse messages delivered to the
@@ -54,7 +64,7 @@ game; `src/runtime/input.c` provides the matching `GetKeyState` and
 `src/recomp/gen_game/` are generated and ignored by Git. The Linux host
 defines the same hook functions as pass-throughs in `src/linux/main.c`.
 
-### Battlefield event path
+#### Battlefield event path
 
 `run_lift.py` patches the battlefield mouse dispatcher (`0x00693107` in Yuri's
 Revenge) to route a short Modern right-click through the game's left-button
@@ -115,7 +125,7 @@ addresses and selected-object globals:
 | Target-object cleanup | `0x004ABE4A` | `0x0049BFB4` |
 | Selection-clear helper | `0x0048DC90` | `0x00482BC0` |
 
-### Same-type and additive selection
+#### Same-type and additive selection
 
 Modern double-left-click on a unit runs the game's own same-type selection
 (`TypeSelectCommandClass`, the `T` command), so its on-screen and ownership
@@ -162,7 +172,7 @@ when the dry run found every object selected, and `Select()` otherwise. The
 walk clears the rectangle it reads (`TacticalClass` `+0xD90`/`+0xD94`), so the
 hook puts it back between the two walks.
 
-### Minimap event path
+#### Minimap event path
 
 The minimap uses `RTacticalClass@RadarClass::virtual_31` at `0x006539D0`.
 Its first byte argument carries left-button flags `0x01`/`0x04` and
@@ -176,6 +186,31 @@ The lifted function names and callback roles were matched against the
 community-maintained [YRpp DisplayClass.h](https://github.com/Ares-Developers/YRpp/blob/master/DisplayClass.h),
 [MapClass.h](https://github.com/Ares-Developers/YRpp/blob/master/MapClass.h), and
 [GeneralDefinitions.h](https://github.com/Ares-Developers/YRpp/blob/master/GeneralDefinitions.h).
+
+## Queue Five
+
+**Feature ID:** `RA2-QOL-001`
+
+Hold **Shift** and click a build icon in the sidebar to queue five of that
+item. A plain click keeps the game's normal one-item behavior. This works with
+both Classic and Modern controls. It applies to production clicks only;
+Shift-right-click to remove from the queue is not included.
+
+The hook adds four copies of the game's own production event to the outgoing
+event ring before the original event is added, so the game's normal
+production and event-processing path does the rest (`queue_five_patches` in
+`run_lift.py`, `src/runtime/queuefive.c`). The extra copies stop when the ring
+reaches its 128-event capacity.
+
+Both games use the same 128-entry ring and 111-byte event records, at
+different addresses:
+
+| Target | Shift-click hooks | Event count | Ring index | Event ring | Timestamps |
+| --- | --- | --- | --- | --- | --- |
+| Yuri's Revenge (`gamemd.exe`) | `0x006AB511`, `0x006AB76E` | `0x00A802C8` | `0x00A802D0` | `0x00A802D4` | `0x00A83A54` |
+| Red Alert 2 (`game.exe`) | `0x0068119E`, `0x006813EF` | `0x00A32338` | `0x00A32340` | `0x00A32344` | `0x00A35AC4` |
+
+These addresses are for the supported shipping executables.
 
 ## Manual verification
 
@@ -191,14 +226,12 @@ not yet assert Modern-mode selection, minimap, or right-click behavior.
 | Right-click | Issues Move; deploys an already selected deployable unit and makes an already selected building primary; never selects the clicked unit. |
 | Right-drag | Pans the camera, including repeated drags and every direction, and keeps the selection; starting over a unit does not select it. |
 | Minimap | Left-click recenters; right-click issues the order. |
-| Special modes | Placement and order modes keep their right-click cancel, and interface clicks are unchanged, for the cases tried. |
+| Right-click orders | Attack, force-fire and force-move, entering transports and garrisons, engineer capture, harvesting, and depot repair. |
+| Special modes | Placement, sell, repair, and superweapon targeting modes keep their right-click cancel; interface clicks are unchanged. |
+| Classic mode | Unchanged, and switching between Classic and Modern during a game works. |
+| Queue Five | Shift-click on a build icon queues five; a plain click queues one (Yuri's Revenge). |
 
 Still to test:
 
-- Right-click orders other than Move: attack, force-fire (Ctrl) and
-  force-move (Alt), entering transports and garrisons, engineer capture,
-  harvesting, and repair at a service depot.
-- Red Alert 2: the naval-yard and enemy-turret left-click cases.
-- Right-click cancel of sell, repair, and superweapon targeting modes.
-- Switching between Classic and Modern during a game, and Classic mode
-  itself, as a regression check.
+- Red Alert 2: the naval-yard and enemy-turret left-click cases, and Queue
+  Five.
