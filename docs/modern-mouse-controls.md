@@ -179,27 +179,26 @@ community-maintained [YRpp DisplayClass.h](https://github.com/Ares-Developers/YR
 
 ## Manual verification
 
-Checked by hand in Yuri's Revenge. Red Alert 2 matches it on every case below
-except the turreted-building and naval cases, which have not been checked
-there. The scripted playtest harness does not yet assert Modern-mode
-selection, minimap, or right-click behavior.
+Checked by hand in both games unless noted. The scripted playtest harness does
+not yet assert Modern-mode selection, minimap, or right-click behavior.
 
-| Case | Status |
+| Area | Verified |
 | --- | --- |
-| Select a unit with left-click; box-select with left-drag | Verified. |
-| Clear selection with left-click on open ground | Verified, including mixed land/naval selection. |
-| Left-click a friendly unit while another is selected | Verified: selects the target without issuing Move. |
-| Left-click a naval yard with a selected ship | Verified: does not trigger repair. |
-| Left-click an enemy turreted building with an attacking unit selected | Verified: does not issue an attack order. |
-| Issue an order with right-click | Move verified; other target types need more coverage. |
-| Right-click a unit; start a right-drag over a unit | Appears to work: selection unchanged. Not covered exhaustively. |
-| Left-click or right-click the minimap | Verified: left-click recenters; right-click issues an order. |
-| Right-click drag, including repeated drags and pan direction | Verified: camera pans correctly and keeps the selection. |
-| Right-click an already selected deployable unit/building | Not yet checked. |
-| Double-left-click a unit to select visible units of its type | Appears to work; needs more coverage. |
-| Shift-click a unit; Shift-double-click a different unit type with another group selected | Verified. |
-| Shift-click a unit that is already in a group selection | Verified in both games: removes it from the selection. |
-| Shift + left-drag over units that are all selected already | Verified in both games: removes them; a mixed box still only adds. |
-| Shift + left-drag a selection rectangle | Verified: keeps the existing selection and adds the boxed units, with Shift held before or after the drag starts. |
-| Left-click a unit already in a group selection | Verified: replaces the group with the clicked unit. |
-| Special placement/order modes and interface clicks | Verified for the cases tried; not exhaustive. |
+| Left-click | Selects a unit or building; on open ground clears the selection (including mixed land/naval selections) without issuing Move; on a friendly unit selects it without Move; on a unit in a group replaces the group. With a ship selected, a naval yard does not trigger repair; with an attacker selected, an enemy turreted building does not trigger an attack (Yuri's Revenge only). |
+| Box selection | Left-drag box-selects. Shift-box adds, with Shift pressed before or after the drag starts; over units that are all selected already it removes them; a mixed box only adds; over open ground it keeps the selection. |
+| Shift-click | Adds an unselected unit; removes a selected one; on open ground keeps the selection, even when clicked quickly or with a slight wobble. |
+| Double-click | Selects the visible units of the clicked type; Shift-double-click adds that type to the current group. |
+| Right-click | Issues Move; deploys an already selected deployable unit and makes an already selected building primary; never selects the clicked unit. |
+| Right-drag | Pans the camera, including repeated drags and every direction, and keeps the selection; starting over a unit does not select it. |
+| Minimap | Left-click recenters; right-click issues the order. |
+| Special modes | Placement and order modes keep their right-click cancel, and interface clicks are unchanged, for the cases tried. |
+
+Still to test:
+
+- Right-click orders other than Move: attack, force-fire (Ctrl) and
+  force-move (Alt), entering transports and garrisons, engineer capture,
+  harvesting, and repair at a service depot.
+- Red Alert 2: the naval-yard and enemy-turret left-click cases.
+- Right-click cancel of sell, repair, and superweapon targeting modes.
+- Switching between Classic and Modern during a game, and Classic mode
+  itself, as a regression check.
