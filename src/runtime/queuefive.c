@@ -1,4 +1,4 @@
-/* Queue Five (docs/mouse-controls.md): copy extra production events into the
+/* Queue Five, part of Modern controls (docs/modern-controls.md): copy extra production events into the
  * active game's event ring. */
 #include <stdint.h>
 #include <string.h>

@@ -5,7 +5,7 @@
 
 ## Goal
 
-In Modern mouse controls, hold **Shift** and right-click the battlefield to
+With Modern controls, hold **Shift** and right-click the battlefield to
 issue a move immediately and append later destinations to that unit's route.
 Shift alone should not enable the game's waypoint cursor or play waypoint
 sounds. Releasing Shift should finish the queued route. Showing waypoint lines
@@ -43,6 +43,6 @@ immediately, consider a direct append/commit path or split immediate movement
 from later queued destinations. Keep the waypoint sound and cursor effects out
 of Shift handling.
 
-This is a Modern mouse-controls idea. The planner addresses above are for
+This is a Modern controls idea. The planner addresses above are for
 Yuri's Revenge (`gamemd.exe`); a Red Alert 2 version would need the matching
 `game.exe` addresses. No waypoint implementation is currently active.

@@ -19,19 +19,18 @@ build\ra2.exe --run --classic                     # the original display
 | F12 | scaling: sharp-bilinear, smooth, CRT, nearest, integer |
 | F10, or right-click beside the picture | the settings menu |
 
-The F10 menu includes **Mouse controls**. **Classic** keeps the original Red
-Alert 2 controls. **Modern** uses left-click to select, left-click on open
-ground to deselect, and right-click for contextual orders. This option
-preserves the original right-click-drag camera pan. It is experimental,
-applies to both games, and is saved as
-`mousecontrols=classic` or `mousecontrols=modern` in `ra2.ini`. Active
-placement and order modes keep their original right-click cancellation.
-The implementation notes and test ledger are in
-[mouse-controls.md](mouse-controls.md).
+The F10 menu includes **Controls**. **Classic** keeps the original games'
+controls. **Modern** uses left-click to select, left-click on open ground to
+deselect, and right-click for contextual orders, and adds Queue Five
+(Shift-click a build icon to queue five). It keeps the original
+right-click-drag camera pan, and active placement and order modes keep their
+original right-click cancellation. It applies to both games and is saved as
+`controls=classic` or `controls=modern` in `ra2.ini`. The implementation notes
+and test record are in [modern-controls.md](modern-controls.md).
 
 ## Settings
 
-The settings menu has scaling, bars, fullscreen, HD vehicles, mouse controls,
+The settings menu has scaling, bars, fullscreen, HD vehicles, controls,
 and the game's resolution. The presenter remembers its own choices, and the
 window's place and size, in `build\ra2.ini`:
 
@@ -41,7 +40,7 @@ scale=sharp
 bars=blur
 fullscreen=0
 hdvoxels=1
-mousecontrols=classic
+controls=classic
 window=100,100,1600,900
 ```
 

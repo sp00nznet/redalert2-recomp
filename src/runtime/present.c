@@ -107,7 +107,7 @@ static struct {
 
 static int g_mode;                       /* index into k_mode_names */
 static int g_bars = 1;                   /* the bars beside a letterboxed picture: 0 black, 1 blurred */
-/* Modern mouse controls (docs/mouse-controls.md). The window procedure
+/* Modern controls (docs/modern-controls.md). The window procedure
  * latches what the game's hooks need from the real mouse messages: */
 static volatile LONG g_modern_controls;  /* opt-in battlefield semantics */
 static volatile LONG g_modern_left_double_click_at;    /* tick of a battlefield double-click */
@@ -445,7 +445,7 @@ static void settings_save(HWND hw) {
     WritePrivateProfileStringA("present", "scale", k_mode_names[g_mode], g_ini);
     WritePrivateProfileStringA("present", "bars", g_bars ? "blur" : "black", g_ini);
     WritePrivateProfileStringA("present", "fullscreen", g_fullscreen ? "1" : "0", g_ini);
-    WritePrivateProfileStringA("present", "mousecontrols",
+    WritePrivateProfileStringA("present", "controls",
         InterlockedCompareExchange(&g_modern_controls, 0, 0) ? "modern" : "classic", g_ini);
     WritePrivateProfileStringA("present", hdvox_key(), ra2_vox_hd_show ? "1" : "0", g_ini);
     if (hw && !g_fullscreen && !IsIconic(hw)) {
@@ -489,14 +489,14 @@ static void set_game_resolution(int w, int h) {
 }
 
 enum { ID_SCALE = 100, ID_BARS = 200, ID_FULL = 300, ID_RES = 400, ID_HDVOX = 500,
-       ID_MOD = 600, ID_MOUSE = 700 };
+       ID_MOD = 600, ID_CONTROLS = 700 };
 #define MAX_MENU_MODS 64
 
 static void settings_menu(HWND hw) {             /* at the mouse */
     POINT at;
     HMENU m = CreatePopupMenu(), sc = CreatePopupMenu(), bars = CreatePopupMenu(), res = CreatePopupMenu();
     HMENU mods = CreatePopupMenu();
-    HMENU mouse = CreatePopupMenu();
+    HMENU controls = CreatePopupMenu();
     static char mod_names[MAX_MENU_MODS][128];
     int nmods = mods_list(mod_names, MAX_MENU_MODS);
     static const char* const scale_label[NMODES] = { "Sharp (default)", "Smooth", "CRT", "Nearest", "Integer" };
@@ -514,11 +514,11 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     AppendMenuA(m, MF_POPUP, (UINT_PTR)bars, "Bars beside the picture");
     AppendMenuA(m, MF_STRING | (g_fullscreen ? MF_CHECKED : 0), ID_FULL, "Fullscreen\tF11");
     AppendMenuA(m, MF_STRING | (ra2_vox_hd_show ? MF_CHECKED : 0), ID_HDVOX, "HD vehicles (voxels at 2x)");
-    AppendMenuA(mouse, MF_STRING | (InterlockedCompareExchange(&g_modern_controls, 0, 0) ? 0 : MF_CHECKED),
-                ID_MOUSE, "Classic");
-    AppendMenuA(mouse, MF_STRING | (InterlockedCompareExchange(&g_modern_controls, 0, 0) ? MF_CHECKED : 0),
-                ID_MOUSE + 1, "Modern");
-    AppendMenuA(m, MF_POPUP, (UINT_PTR)mouse, "Mouse controls");
+    AppendMenuA(controls, MF_STRING | (InterlockedCompareExchange(&g_modern_controls, 0, 0) ? 0 : MF_CHECKED),
+                ID_CONTROLS, "Classic");
+    AppendMenuA(controls, MF_STRING | (InterlockedCompareExchange(&g_modern_controls, 0, 0) ? MF_CHECKED : 0),
+                ID_CONTROLS + 1, "Modern");
+    AppendMenuA(m, MF_POPUP, (UINT_PTR)controls, "Controls");
     AppendMenuA(m, MF_SEPARATOR, 0, NULL);
     AppendMenuA(m, MF_POPUP, (UINT_PTR)res, "Game resolution (next game)");
     /* the mods in mods\<game>: choosing one restarts the game with it (mods.c) */
@@ -534,8 +534,8 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     else if (cmd == ID_BARS || cmd == ID_BARS + 1) g_bars = cmd - ID_BARS;
     else if (cmd == ID_FULL) set_fullscreen(hw, !g_fullscreen);
     else if (cmd == ID_HDVOX) ra2_vox_hd_show = !ra2_vox_hd_show;  /* takes effect next frame */
-    else if (cmd == ID_MOUSE || cmd == ID_MOUSE + 1)
-        InterlockedExchange(&g_modern_controls, cmd - ID_MOUSE);
+    else if (cmd == ID_CONTROLS || cmd == ID_CONTROLS + 1)
+        InterlockedExchange(&g_modern_controls, cmd - ID_CONTROLS);
     else if (cmd >= ID_RES && cmd < ID_RES + NRES) set_game_resolution(k_res[cmd - ID_RES][0], k_res[cmd - ID_RES][1]);
     else if (cmd >= ID_MOD && cmd <= ID_MOD + nmods) {
         const char* name = cmd == ID_MOD ? "" : mod_names[cmd - ID_MOD - 1];
@@ -816,7 +816,7 @@ void present_start(int mode, int fullscreen) {
     g_mode = present_mode_from_name(v) >= 0 ? present_mode_from_name(v) : 0;
     GetPrivateProfileStringA("present", "bars", "blur", v, sizeof v, g_ini);
     g_bars = _stricmp(v, "black") != 0;
-    GetPrivateProfileStringA("present", "mousecontrols", "classic", v, sizeof v, g_ini);
+    GetPrivateProfileStringA("present", "controls", "classic", v, sizeof v, g_ini);
     InterlockedExchange(&g_modern_controls, !_stricmp(v, "modern"));
     if (fullscreen < 0) fullscreen = GetPrivateProfileIntA("present", "fullscreen", 0, g_ini);
     if (!ra2_vox_hd_on)                     /* --hd-voxels forces it */
@@ -825,6 +825,12 @@ void present_start(int mode, int fullscreen) {
     if (mode >= 0) g_mode = mode;
     input_live(1);
     CloseHandle(CreateThread(NULL, 0, present_thread, (LPVOID)(intptr_t)fullscreen, 0, NULL));
+}
+
+/* Whether Modern controls are on, for the lifted hooks that only act then
+ * (Queue Five). */
+int ra2_modern_controls(void) {
+    return InterlockedCompareExchange(&g_modern_controls, 0, 0) != 0;
 }
 
 /* Called only from the lifted battlefield message dispatcher. A short right
@@ -903,7 +909,7 @@ uint32_t ra2_modern_radar_event_flags(uint32_t flags) {
 }
 
 /* Results of ra2_modern_left_click_action besides the game's own action
- * values. The mouse-up patch in run_lift.py ('action' in MODERN_MOUSE_TARGETS)
+ * values. The mouse-up patch in run_lift.py ('action' in MODERN_CONTROLS_TARGETS)
  * tests for these exact values.
  *
  * Action None does not make the mouse-up handler (0x004AB9B0) a no-op: with a

@@ -1,25 +1,21 @@
-# Mouse controls
+# Modern controls
 
-Two additions to the games' mouse controls, both in Red Alert 2 and Yuri's
-Revenge:
+The F10 menu's **Controls** entry offers **Classic** and **Modern** in both
+Red Alert 2 and Yuri's Revenge. Classic, the default, keeps the original games'
+controls. Modern brings two changes:
 
-- **Modern mouse controls** (F10 menu): left-click selects, right-click
-  orders.
-- **Queue Five** (`RA2-QOL-001`, always on): Shift-click a build icon in the
-  sidebar to queue five of that item.
+- **Mouse**: left-click selects, right-click orders, with modern selection
+  shortcuts.
+- **Queue Five** (`RA2-QOL-001`): Shift-click a build icon in the sidebar to
+  queue five of that item.
 
-Neither changes `rules.ini` or `rulesmd.ini`.
+The presenter saves the choice in `ra2.ini` as `controls=classic` or
+`controls=modern`. Neither mode changes `rules.ini` or `rulesmd.ini`. Each
+game uses its own lifted hook addresses and engine globals. The native Linux
+host has no F10 menu: its hooks pass the game's input through unchanged, so it
+always plays with Classic controls.
 
-## Modern mouse controls
-
-The F10 menu offers **Classic** and **Modern** mouse controls in both Red Alert
-2 and Yuri's Revenge. Classic remains the default. The presenter saves the
-choice in `ra2.ini` as `mousecontrols=classic` or `mousecontrols=modern`.
-
-Modern mode changes battlefield input only. Each game uses its own lifted hook
-addresses and engine globals.
-The native Linux host has no F10 menu: its hooks pass the game's input through
-unchanged, so it always plays with Classic controls.
+## Mouse
 
 ### Behavior
 
@@ -60,7 +56,7 @@ planned.
 coordinates the physical button state with the mouse messages delivered to the
 game; `src/runtime/input.c` provides the matching `GetKeyState` and
 `GetAsyncKeyState` behavior. Keep lifted-game changes in `run_lift.py`
-(`MODERN_MOUSE_TARGETS` and `modern_mouse_patches`). `src/recomp/gen/` and
+(`MODERN_CONTROLS_TARGETS` and `modern_controls_patches`). `src/recomp/gen/` and
 `src/recomp/gen_game/` are generated and ignored by Git. The Linux host
 defines the same hook functions as pass-throughs in `src/linux/main.c`.
 
@@ -192,14 +188,15 @@ community-maintained [YRpp DisplayClass.h](https://github.com/Ares-Developers/YR
 **Feature ID:** `RA2-QOL-001`
 
 Hold **Shift** and click a build icon in the sidebar to queue five of that
-item. A plain click keeps the game's normal one-item behavior. This works with
-both Classic and Modern controls. It applies to production clicks only;
+item. A plain click keeps the game's normal one-item behavior, and Classic
+controls keep it for Shift-click too. It applies to production clicks only;
 Shift-right-click to remove from the queue is not included.
 
 The hook adds four copies of the game's own production event to the outgoing
 event ring before the original event is added, so the game's normal
 production and event-processing path does the rest (`queue_five_patches` in
-`run_lift.py`, `src/runtime/queuefive.c`). The extra copies stop when the ring
+`run_lift.py`, `src/runtime/queuefive.c`). The hook asks
+`ra2_modern_controls()` first and does nothing in Classic. The extra copies stop when the ring
 reaches its 128-event capacity.
 
 Both games use the same 128-entry ring and 111-byte event records, at
@@ -219,7 +216,7 @@ not yet assert Modern-mode selection, minimap, or right-click behavior.
 
 | Area | Verified |
 | --- | --- |
-| Left-click | Selects a unit or building; on open ground clears the selection (including mixed land/naval selections) without issuing Move; on a friendly unit selects it without Move; on a unit in a group replaces the group. With a ship selected, a naval yard does not trigger repair; with an attacker selected, an enemy turreted building does not trigger an attack. The naval yard case is checked in Yuri's Revenge only. |
+| Left-click | Selects a unit or building; on open ground clears the selection (including mixed land/naval selections) without issuing Move; on a friendly unit selects it without Move; on a unit in a group replaces the group. With a ship selected, a naval yard does not trigger repair; with an attacker selected, an enemy turreted building does not trigger an attack. |
 | Box selection | Left-drag box-selects. Shift-box adds, with Shift pressed before or after the drag starts; over units that are all selected already it removes them; a mixed box only adds; over open ground it keeps the selection. |
 | Shift-click | Adds an unselected unit; removes a selected one; on open ground keeps the selection, even when clicked quickly or with a slight wobble. |
 | Double-click | Selects the visible units of the clicked type; Shift-double-click adds that type to the current group. |
@@ -229,8 +226,8 @@ not yet assert Modern-mode selection, minimap, or right-click behavior.
 | Right-click orders | Attack, force-fire and force-move, entering transports and garrisons, engineer capture, harvesting, and depot repair. |
 | Special modes | Placement, sell, repair, and superweapon targeting modes keep their right-click cancel; interface clicks are unchanged. |
 | Classic mode | Unchanged, and switching between Classic and Modern during a game works. |
-| Queue Five | Shift-click on a build icon queues five; a plain click queues one. |
+| Queue Five | Shift-click on a build icon queues five; a plain click queues one; with Classic controls, Shift-click queues one. |
 
 Still to test:
 
-- Red Alert 2: left-click your own naval yard with a damaged ship selected.
+- Red Alert 2: Queue Five is off in Classic (checked in Yuri's Revenge).
