@@ -227,7 +227,3 @@ not yet assert Modern-mode selection, minimap, or right-click behavior.
 | Special modes | Placement, sell, repair, and superweapon targeting modes keep their right-click cancel; interface clicks are unchanged. |
 | Classic mode | Unchanged, and switching between Classic and Modern during a game works. |
 | Queue Five | Shift-click on a build icon queues five; a plain click queues one; with Classic controls, Shift-click queues one. |
-
-Still to test:
-
-- Red Alert 2: Queue Five is off in Classic (checked in Yuri's Revenge).
