@@ -219,7 +219,7 @@ not yet assert Modern-mode selection, minimap, or right-click behavior.
 
 | Area | Verified |
 | --- | --- |
-| Left-click | Selects a unit or building; on open ground clears the selection (including mixed land/naval selections) without issuing Move; on a friendly unit selects it without Move; on a unit in a group replaces the group. With a ship selected, a naval yard does not trigger repair; with an attacker selected, an enemy turreted building does not trigger an attack (Yuri's Revenge only). |
+| Left-click | Selects a unit or building; on open ground clears the selection (including mixed land/naval selections) without issuing Move; on a friendly unit selects it without Move; on a unit in a group replaces the group. With a ship selected, a naval yard does not trigger repair; with an attacker selected, an enemy turreted building does not trigger an attack. The naval yard case is checked in Yuri's Revenge only. |
 | Box selection | Left-drag box-selects. Shift-box adds, with Shift pressed before or after the drag starts; over units that are all selected already it removes them; a mixed box only adds; over open ground it keeps the selection. |
 | Shift-click | Adds an unselected unit; removes a selected one; on open ground keeps the selection, even when clicked quickly or with a slight wobble. |
 | Double-click | Selects the visible units of the clicked type; Shift-double-click adds that type to the current group. |
@@ -229,9 +229,8 @@ not yet assert Modern-mode selection, minimap, or right-click behavior.
 | Right-click orders | Attack, force-fire and force-move, entering transports and garrisons, engineer capture, harvesting, and depot repair. |
 | Special modes | Placement, sell, repair, and superweapon targeting modes keep their right-click cancel; interface clicks are unchanged. |
 | Classic mode | Unchanged, and switching between Classic and Modern during a game works. |
-| Queue Five | Shift-click on a build icon queues five; a plain click queues one (Yuri's Revenge). |
+| Queue Five | Shift-click on a build icon queues five; a plain click queues one. |
 
 Still to test:
 
-- Red Alert 2: the naval-yard and enemy-turret left-click cases, and Queue
-  Five.
+- Red Alert 2: left-click your own naval yard with a damaged ship selected.
