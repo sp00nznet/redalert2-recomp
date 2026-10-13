@@ -198,8 +198,8 @@ selection, minimap, or right-click behavior.
 | Right-click an already selected deployable unit/building | Not yet checked. |
 | Double-left-click a unit to select visible units of its type | Appears to work; needs more coverage. |
 | Shift-click a unit; Shift-double-click a different unit type with another group selected | Verified. |
-| Shift-click a unit that is already in a group selection | Removes it from the selection. Not yet checked in game. |
-| Shift + left-drag over units that are all selected already | Removes them. Not yet checked in game. |
+| Shift-click a unit that is already in a group selection | Verified in both games: removes it from the selection. |
+| Shift + left-drag over units that are all selected already | Verified in both games: removes them; a mixed box still only adds. |
 | Shift + left-drag a selection rectangle | Verified: keeps the existing selection and adds the boxed units, with Shift held before or after the drag starts. |
 | Left-click a unit already in a group selection | Verified: replaces the group with the clicked unit. |
 | Special placement/order modes and interface clicks | Verified for the cases tried; not exhaustive. |
