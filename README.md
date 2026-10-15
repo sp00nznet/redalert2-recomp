@@ -169,11 +169,11 @@ terminal in this folder) builds just that game, in about half the time.
 Prerequisites: Windows 10/11, **Python 3.10+** (`py -3 --version`), **git**,
 **Visual Studio 2022** (any edition, or the Build Tools) with *Desktop
 development with C++* including the x86 tools, **CMake 3.20+** and **Ninja**,
-and the pcrecomp toolkit cloned **beside** this repository as `tools`:
+and the pcrecomp toolkit cloned **beside** this repository:
 
 ```
 some-folder\
-  tools\        <- git clone https://github.com/sp00nznet/pcrecomp tools
+  pcrecomp\     <- git clone https://github.com/sp00nznet/pcrecomp
   ra2\          <- this repository
 ```
 
@@ -191,13 +191,13 @@ some-folder\
    ```
 3. Headers, imports and C++ classes (seconds):
    ```
-   py -3 ..\tools\tools\pe\pe_analyze.py game\gamemd.exe --json work\pe_analysis.json
-   py -3 ..\tools\tools\cpp\rtti.py game\gamemd.exe -o work\rtti.json --seeds work\rtti_seeds.json
+   py -3 ..\pcrecomp\tools\pe\pe_analyze.py game\gamemd.exe --json work\pe_analysis.json
+   py -3 ..\pcrecomp\tools\cpp\rtti.py game\gamemd.exe -o work\rtti.json --seeds work\rtti_seeds.json
    ```
    Expected from `rtti.py`: `classes : 954` and `virtual methods : 6,665`.
 4. The function catalog (about 15 minutes):
    ```
-   py -3 ..\tools\tools\disasm\disasm32.py game\gamemd.exe -o work\functions.json --seed-functions work\rtti_seeds.json
+   py -3 ..\pcrecomp\tools\disasm\disasm32.py game\gamemd.exe -o work\functions.json --seed-functions work\rtti_seeds.json
    ```
    Expected: `Functions: 24940` and `Byte coverage: ... (91.8% of code range)`.
 5. Lift (5 to 15 minutes):
@@ -218,9 +218,9 @@ Steps 3 to 7 are Yuri's Revenge. Red Alert 2 is the same from step 3, with
 `game.exe`, `work\game\` and `build-game\`:
 
 ```
-py -3 ..\tools\tools\pe\pe_analyze.py game\game.exe --json work\game\pe_analysis.json
-py -3 ..\tools\tools\cpp\rtti.py game\game.exe -o work\game\rtti.json --seeds work\game\rtti_seeds.json
-py -3 ..\tools\tools\disasm\disasm32.py game\game.exe -o work\game\functions.json --seed-functions work\game\rtti_seeds.json
+py -3 ..\pcrecomp\tools\pe\pe_analyze.py game\game.exe --json work\game\pe_analysis.json
+py -3 ..\pcrecomp\tools\cpp\rtti.py game\game.exe -o work\game\rtti.json --seeds work\game\rtti_seeds.json
+py -3 ..\pcrecomp\tools\disasm\disasm32.py game\game.exe -o work\game\functions.json --seed-functions work\game\rtti_seeds.json
 py -3 run_lift.py --all --target game
 set BUILD_DIR=build-game
 set CMAKE_ARGS=-DRA2_TARGET=game
@@ -296,7 +296,7 @@ offers to download `xwin`'s release binary. Either way it asks before xwin
 downloads the x86 MSVC C runtime and Windows SDK from Microsoft (about 1 GB,
 under Microsoft's licence, into `~/.xwin`); finds `pefile` and `capstone` or
 puts them in a `.venv`; clones pcrecomp beside this folder as `pcrecomp` (or
-uses `../tools`, or `PCRECOMP`); finds the game in your CrossOver bottles or
+uses `PCRECOMP`, or `../tools` where an older setup put it); finds the game in your CrossOver bottles or
 Steam libraries; and then catalogs, lifts and builds each game as `Setup.cmd`
 does. The catalog is about 15 minutes a game, the lift a minute or two, the
 build 10 to 20. It leaves `Yuri's Revenge (recomp)` and `Red Alert 2 (recomp)`
@@ -402,7 +402,7 @@ in its `RECOMP_ENTER`, so a crash report's address finds the function.
 ## Building from source
 
 Steps 5 and 6 above. `PCRECOMP` (environment, for `run_lift.py`) and
-`-DPCRECOMP=` (CMake) point at a toolkit checkout other than `..\tools`; the
+`-DPCRECOMP=` (CMake) point at a toolkit checkout other than `..\pcrecomp`; the
 lifter and the runtime must come from the same tree.
 
 It builds from pcrecomp `main`, for MSVC and clang-cl alike.

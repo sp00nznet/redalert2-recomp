@@ -10,6 +10,8 @@
 #   ./setup.sh yr              # only Yuri's Revenge (or: ra2)
 #   ./setup.sh --wine          # on Linux: the Windows exes, under Wine
 #   ./setup.sh --force         # redo every step
+#   ./setup.sh --yes           # install what is missing without asking
+#   ./setup.sh --game-dir DIR  # the install to use, instead of searching Steam
 #
 # It links game/ to the install (nothing is copied), builds the function
 # catalog, lifts and builds each game, and leaves a "<game> (recomp)" launcher
@@ -20,20 +22,27 @@ ROOT=$PWD
 FORCE=0
 NATIVE=1
 GAMES="yr ra2"
-for a in "$@"; do
-  case "$a" in
+YES=0
+GAME_ARG=""
+while [ $# -gt 0 ]; do
+  case "$1" in
     --force) FORCE=1 ;;
     --wine) NATIVE=0 ;;
-    yr|ra2) GAMES=$a ;;
-    *) echo "usage: ./setup.sh [yr|ra2] [--force] [--wine]" >&2; exit 2 ;;
+    --yes) YES=1 ;;
+    --game-dir) GAME_ARG=$2; shift ;;
+    yr|ra2) GAMES=$1 ;;
+    *) echo "usage: ./setup.sh [yr|ra2] [--force] [--wine] [--yes] [--game-dir DIR]" >&2; exit 2 ;;
   esac
+  shift
 done
 MAC=0; [ "$(uname)" = Darwin ] && MAC=1 && NATIVE=0
 
 say()  { printf '%s\n' "$*"; }
 step() { printf '\n\033[36m%s\033[0m\n' "$*"; }
 fail() { printf '\n\033[31mSetup stopped: %s\033[0m\n' "$*" >&2; exit 1; }
-ask()  { read -r -p "$1 [Y/n] " r; [[ ! $r =~ ^[nN] ]]; }
+# confirm: always asks (a licence); ask: --yes answers it
+confirm() { read -r -p "$1 [Y/n] " r; [[ ! $r =~ ^[nN] ]]; }
+ask()  { [ "$YES" = 1 ] && { say "$1 yes"; return 0; }; confirm "$1"; }
 done_already() { [ "$FORCE" = 0 ] && [ -e "$1" ]; }
 # A program on PATH or, as Debian and Ubuntu keep clang-cl, in /usr/lib/llvm-*/bin.
 have() { command -v "$1" >/dev/null || ls /usr/lib/llvm-*/bin/"$1" >/dev/null 2>&1; }
@@ -104,7 +113,7 @@ if [ "$NATIVE" = 0 ] && [ ! -d "$XWIN_DIR/crt/lib/x86" ]; then
   say "  The x86 MSVC C runtime and Windows SDK are needed to build a Windows exe (about 1 GB)."
   say "  xwin downloads them from Microsoft, under Microsoft's licence:"
   say "  https://go.microsoft.com/fwlink/?LinkId=2086102"
-  ask "  Accept that licence and download them into $XWIN_DIR?" || fail "the CRT and SDK are required."
+  confirm "  Accept that licence and download them into $XWIN_DIR?" || fail "the CRT and SDK are required."
   # The cache beside the output: --temp unpacks in /tmp, and moving out of
   # it fails where /tmp is another filesystem (tmpfs on most Linux systems).
   xwin --accept-license --cache-dir "$XWIN_DIR.cache" --arch x86 splat --output "$XWIN_DIR"
@@ -125,9 +134,10 @@ else
   PY=$ROOT/.venv/bin/python
 fi
 
-# The toolkit: PCRECOMP, else ../tools (the Windows layout), else ../pcrecomp.
+# The toolkit: PCRECOMP, else ../pcrecomp, else ../tools (where older setups
+# put it), else ../pcrecomp is cloned.
 if [ -z "$PCRECOMP" ]; then
-  if [ -d ../tools/runtime/native32 ]; then PCRECOMP=$(cd ../tools && pwd)
+  if [ ! -d ../pcrecomp ] && [ -d ../tools/runtime/native32 ]; then PCRECOMP=$(cd ../tools && pwd)
   else PCRECOMP=$(cd .. && pwd)/pcrecomp; fi
 fi
 if [ ! -d "$PCRECOMP/runtime/native32" ]; then
@@ -180,9 +190,12 @@ if [ ! -e game ]; then
         < <(sed -n 's/^[[:space:]]*"path"[[:space:]]*"\(.*\)"$/\1/p' "$vdf")
     done
   fi
+  [ -n "$GAME_ARG" ] && candidates=("$GAME_ARG")
   for d in "${candidates[@]}"; do
     [ -f "$d/gamemd.exe" ] && [ -f "$d/game.exe" ] && { found=$d; break; }
   done
+  [ -z "$found" ] && [ -n "$GAME_ARG" ] && fail "no gamemd.exe and game.exe in $GAME_ARG."
+  [ -z "$found" ] && [ "$YES" = 1 ] && fail "Red Alert 2 was not found in Steam. Give its folder with --game-dir."
   while [ -z "$found" ]; do
     read -r -p "  The folder holding gamemd.exe and game.exe: " found
     [ -f "$found/gamemd.exe" ] && [ -f "$found/game.exe" ] || { say "  Not there."; found=""; }

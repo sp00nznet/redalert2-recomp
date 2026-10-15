@@ -13,9 +13,9 @@
 set -e
 cd "$(dirname "$0")"
 BUILD_DIR=${BUILD_DIR:-build-linux}
-# The toolkit: PCRECOMP, else ../tools (the Windows layout), else ../pcrecomp.
+# The toolkit: PCRECOMP, else ../pcrecomp, else ../tools (older setups).
 if [ -z "$PCRECOMP" ]; then
-  if [ -d ../tools/runtime/win32hle ]; then PCRECOMP=$(cd ../tools && pwd)
+  if [ ! -d ../pcrecomp ] && [ -d ../tools/runtime/win32hle ]; then PCRECOMP=$(cd ../tools && pwd)
   else PCRECOMP=$(cd .. && pwd)/pcrecomp; fi
 fi
 if [ ! -f "$BUILD_DIR/build.ninja" ]; then

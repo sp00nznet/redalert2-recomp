@@ -84,7 +84,7 @@ the factories are lifted code, so this works without anything special.
 ## The function catalog
 
 ```
-$ py -3 ..\tools\tools\disasm\disasm32.py game\gamemd.exe -o work\functions.json --seed-functions work\rtti_seeds.json
+$ py -3 ..\pcrecomp\tools\disasm\disasm32.py game\gamemd.exe -o work\functions.json --seed-functions work\rtti_seeds.json
 [*] Functions: 22682  (thunks=51, leaves=8906)
 [*] Instructions: 2,823,399
 [*] Byte coverage: 3,615,767 / 4,063,232 (89.0% of code range)

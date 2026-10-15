@@ -32,7 +32,11 @@ import time
 _HERE = os.path.dirname(os.path.abspath(__file__))
 # PCRECOMP picks another toolkit checkout, the same knob CMakeLists.txt has:
 # the lifter and the runtime header must come from the same tree.
-_TOOLS = os.path.join(os.environ.get('PCRECOMP', os.path.join(_HERE, '..', 'tools')), 'tools')
+# Else ../pcrecomp, or ../tools where older setups put it.
+_KIT = os.path.join(_HERE, '..', 'pcrecomp')
+if not os.path.isdir(_KIT) and os.path.isdir(os.path.join(_HERE, '..', 'tools', 'runtime')):
+    _KIT = os.path.join(_HERE, '..', 'tools')
+_TOOLS = os.path.join(os.environ.get('PCRECOMP', _KIT), 'tools')
 sys.path.insert(0, os.path.join(_TOOLS, 'lift'))
 sys.path.insert(0, os.path.join(_TOOLS, 'pe'))
 
