@@ -49,8 +49,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # is Yuri's Revenge (gamemd.exe, build\).
 TARGET = os.environ.get('RA2_TARGET', 'gamemd')
 GAME_EXE, GAME_INI = ('game.exe', 'RA2.INI') if TARGET == 'game' else ('gamemd.exe', 'RA2MD.INI')
-# On Linux the native host (build-linux.sh) is the default once it is built.
-NATIVE_HOST = os.path.join(ROOT, 'build-linux-game' if TARGET == 'game' else 'build-linux', 'ra2')
+# Off Windows the native host (build-linux.sh, build-macos.sh) is the default
+# once it is built.
+_NATIVE_DIR = 'build-macos' if sys.platform == 'darwin' else 'build-linux'
+NATIVE_HOST = os.path.join(ROOT, _NATIVE_DIR + ('-game' if TARGET == 'game' else ''), 'ra2')
 HOST = os.environ.get('RA2_EXE') or (NATIVE_HOST if os.name != 'nt' and os.path.exists(NATIVE_HOST)
                                      else os.path.join(ROOT, 'build-game' if TARGET == 'game' else 'build', 'ra2.exe'))
 NATIVE = os.name != 'nt' and not HOST.lower().endswith('.exe')
@@ -98,6 +100,19 @@ def control(dlg, label):
     raise KeyError('no GUI:%s in dialog 0x%X' % (label, dlg))
 
 
+def combo_point(dlg, cid, item=None):
+    """Screen pixels for a combo box of dialog `dlg` (a full-screen menu at
+    0, 0): its arrow, or with `item` that row of its list once dropped. Dialog
+    units are win32hle's (6/4 across, 13/8 down); the field is 21 pixels and
+    the game's list rows 23."""
+    control(dlg, 'Back')                                # loads the dialogs
+    x, y, w, _ = next(c['rect'] for c in _dialogs['0x%X' % dlg]['controls'] if c['id'] == cid)
+    left, top, right = x * 6 // 4, y * 13 // 8, (x + w) * 6 // 4
+    if item is None:
+        return right - 8, top + 10
+    return (left + right) // 2, top + 21 + 23 * item + 11
+
+
 # Event times are seconds after the main menu first opened; --press and
 # --select wait for their dialog on top of that, so they only need to come in
 # the right order. One second apart is plenty.
@@ -135,6 +150,15 @@ class Script:
     def move(self, x, y, after=0):
         self.t += after
         self.args += ['--move', '%d,%d@%g' % (x, y, self.t)]
+        self.t += 1
+        return self
+
+    def uclick(self, x, y, after=0):
+        """A left click at screen pixel x, y as the mouse gives it: to the
+        window under the point (a menu's control), not the game's window.
+        Native host only."""
+        self.t += after
+        self.args += ['--uclick', '%d,%d@%g' % (x, y, self.t)]
         self.t += 1
         return self
 
@@ -224,6 +248,15 @@ case('movies-sneakpeeks', S().press(MAIN, 'MoviesAndCredits', MOVIES).press(MOVI
 INGAME = 'Capture_Mouse'
 case('skirmish-start', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
      .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10), 180, ingame=True)
+# A third player picked with the mouse, through the skirmish screen's own
+# drop-down list (the third row's arrow, then its "Easy Enemy"): the list has
+# to open with room for its items, and close. The native host only (--uclick),
+# and Yuri's Revenge: Red Alert 2's skirmish screen shows no third row until
+# its map has room for one.
+if NATIVE and TARGET == 'gamemd':
+    case('skirmish-dropdown', SP().press(SINGLE, 'Skirmish', SKIRMISH).uclick(*combo_point(SKIRMISH, 1294), after=3)
+         .uclick(*combo_point(SKIRMISH, 1294, item=1), after=2).press(SKIRMISH, 'StartGame').waitlog(INGAME), 150,
+         ingame=True, log={'Assigning Starting Points for house 2': 1})
 # Orders by mouse: select and deploy the MCV, band-select everything on
 # screen, then Ctrl+click (force-fire) at two of the tanks. Written to put
 # explosions and debris (voxel animations) under the camera; it has not yet

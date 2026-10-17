@@ -7,6 +7,8 @@
  *   --select DLG:CTRL=N@s  pick item N of a list or combo box (a slider's position)
  *   --waitlog TEXT@s     hold until the game's debug log prints a line with TEXT
  *   --move x,y@s  --click [c][s][a]+x,y@s  --key [c][s][a]+vk@s  --wait VA@s
+ *   --uclick x,y@s  a click as the mouse gives it: to the window under the
+ *                   point (user32's hit test and capture), as screen.c does
  *   --drag x1,y1,x2,y2@s
  *
  * s is seconds after the main menu's dialog (0xE2) opened; events run in time order on their
@@ -57,6 +59,9 @@ int script_arg(int argc, char **argv, int i) {
         }
         if (sscanf(a, "%d,%d@%lf", &e.x, &e.y, &e.t) != 3) return 0;
         e.kind = argv[i][2];
+    } else if (!strcmp(argv[i], "--uclick")) {
+        if (sscanf(a, "%d,%d@%lf", &e.x, &e.y, &e.t) != 3) return 0;
+        e.kind = 'u';
     } else if (!strcmp(argv[i], "--drag")) {
         int x2, y2;
         if (sscanf(a, "%d,%d,%d,%d@%lf", &e.x, &e.y, &x2, &y2, &e.t) != 5) return 0;
@@ -338,6 +343,23 @@ static void *script(void *unused) {
             sleep_ms(500);
             for (int m = 0; m < 3; m++)
                 if (e->y & 1 << m) { key_state(mvk[m], 0); post(h, WM_KEYUP, mvk[m], 0xC0000001u); }
+            continue;
+        }
+        if (e->kind == 'u') {
+            fprintf(stderr, "[input] %.1fs uclick %d,%d\n", e->t, e->x, e->y);
+            mach_enter();
+            hle_input_mouse(0x0200u /* WM_MOUSEMOVE */, e->x, e->y);
+            mach_leave();
+            sleep_ms(100);
+            mach_enter();
+            hle_input_mouse(WM_LBUTTONDOWN, e->x, e->y);
+            mach_leave();
+            sleep_ms(250);
+            lb_seen();
+            mach_enter();
+            hle_input_mouse(WM_LBUTTONUP, e->x, e->y);
+            mach_leave();
+            lb_seen();
             continue;
         }
         if (e->kind == 'd') {

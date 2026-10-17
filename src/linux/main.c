@@ -1,5 +1,5 @@
 /*
- * Red Alert 2 and Yuri's Revenge - the native Linux host.
+ * Red Alert 2 and Yuri's Revenge - the native host, for Linux and macOS.
  *
  * The same lifted C as the Windows build (src/recomp/gen for Yuri's Revenge,
  * gen_game for Red Alert 2: recomp_target.h says which), on pcrecomp's
@@ -10,8 +10,10 @@
  * What is here is what is specific to this game: where the image goes, the
  * command line, the hooks the lift calls, and the fault report.
  *
- * Linked non-PIE at the default 0x08048000, so the guest's
- * 0x00400000..0x00B7A000 is free for the image.
+ * 32-bit (Linux, -m32) it is linked non-PIE at the default 0x08048000, so
+ * the guest's 0x00400000..0x00B7A000 is free for the image; 64-bit (macOS,
+ * or Linux x86-64/arm64) the guest's memory is one block of the host's, and
+ * the image goes at its own address in it.
  */
 #define _GNU_SOURCE
 #include <stdint.h>
@@ -43,8 +45,8 @@ static unsigned g_watchdog_s;
  * run_lift.py PATCHES and HOOKS. */
 
 /* The game's debug printf, compiled out of the retail build: --debuglog
- * prints it (arguments straight off the guest stack: a cdecl va_list on x86
- * is a pointer to the first variadic slot, and the guest is 32-bit). */
+ * prints it (its arguments read off the guest stack, a %s as a guest
+ * address: hle_guest_format). */
 int  script_arg(int argc, char **argv, int i);   /* script.c */
 int  script_active(void);
 void script_log_line(const char *line);
@@ -53,13 +55,7 @@ void script_start(void);
 void ra2_hook_debuglog(void) {
     if (g_debuglog || script_active()) {
         char buf[1024];
-        const char *fmt = (const char *)(uintptr_t)MEM32(g_esp + 4);
-        /* the guest's varargs are 4-byte slots, as i386's are: va_list is a
-         * pointer to the first */
-        va_list ap;
-        char *first = (char *)(uintptr_t)(g_esp + 8);
-        memcpy(&ap, &first, sizeof ap);
-        vsnprintf(buf, sizeof buf, fmt, ap);
+        hle_guest_format(buf, sizeof buf, (const char *)hle_ptr(MEM32(g_esp + 4)), g_esp + 8);
         size_t n = strlen(buf);
         script_log_line(buf);
         if (g_debuglog) fprintf(stderr, "[game] %s%s", buf, n && buf[n - 1] == '\n' ? "" : "\n");
@@ -316,9 +312,7 @@ static void frame_pump(void) {
  * [mods] active, the mod last played (mods.c). */
 static char g_ini[PATH_MAX];
 static void ini_path(void) {
-    ssize_t n = readlink("/proc/self/exe", g_ini, sizeof g_ini - 8);
-    if (n <= 0) { g_ini[0] = 0; return; }
-    g_ini[n] = 0;
+    if (!hle_exe_path(g_ini, sizeof g_ini - 8)) { g_ini[0] = 0; return; }
     char *slash = strrchr(g_ini, '/');
     strcpy(slash ? slash + 1 : g_ini, "ra2.ini");
 }
@@ -464,7 +458,11 @@ int main(int argc, char **argv) {
     win32hle_register(g_ra2_shims);    /* first: the game's own answers win */
     recomp_host_init();
     hle_com_register_class(CLSID_Blowfish, ra2_blowfish_create);
+#ifdef __APPLE__
+    printf(RA2_TITLE " recomp host (native macOS)\n  lifted functions in dispatch: %u\n", recomp_dispatch_count);
+#else
     printf(RA2_TITLE " recomp host (native Linux)\n  lifted functions in dispatch: %u\n", recomp_dispatch_count);
+#endif
 
     pe_image img;
     if (recomp_pe_map(exe_host, &img) != 0 || img.base != RA2_IMAGE_BASE) {

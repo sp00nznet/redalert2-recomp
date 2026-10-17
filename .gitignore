@@ -4,6 +4,9 @@ build-game/
 # Native Linux builds (build-linux.sh)
 build-linux/
 build-linux-game/
+# Native macOS builds (build-macos.sh)
+build-macos/
+build-macos-game/
 # xwin's download cache, made wherever it is run (setup.sh)
 .xwin-cache/
 out/

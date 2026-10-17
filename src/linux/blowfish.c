@@ -27,7 +27,7 @@ static uint32_t g_init[18 + 1024];
 static int g_have_init;
 
 typedef struct { uint32_t p[18], s[4][256]; int keyed; } bf_t;
-#define BF(self) ((bf_t *)(uintptr_t)MEM32((self) + 8))
+#define BF(self) ((bf_t *)hle_ptr(MEM32((self) + 8)))   /* in guest memory (hle_alloc), so its VA fits */
 
 static uint32_t f(const bf_t *b, uint32_t x) {
     return ((b->s[0][x >> 24] + b->s[1][(x >> 16) & 255]) ^ b->s[2][(x >> 8) & 255]) + b->s[3][x & 255];
@@ -94,7 +94,7 @@ static void m_Encrypt(void) { process(0); }
 static void m_Decrypt(void) { process(1); }
 static void m_Release(void) {
     uint32_t self = A32(0), n = --MEM32(self + 4);
-    if (!n) { free(BF(self)); free((void *)(uintptr_t)self); }
+    if (!n) { hle_free(BF(self)); hle_com_free(self); }
     RET(n, 1);
 }
 
@@ -131,7 +131,7 @@ uint32_t ra2_blowfish_create(const uint8_t *iid, uint32_t *out) {
         vt = hle_com_vtable(m);
     }
     uint32_t o = hle_com_new(vt, 12);
-    MEM32(o + 8) = (uint32_t)(uintptr_t)calloc(1, sizeof(bf_t));
+    MEM32(o + 8) = hle_va(hle_alloc(sizeof(bf_t)));
     *out = o;
     return 0;
 }

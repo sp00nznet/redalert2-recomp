@@ -68,22 +68,33 @@ typedef struct { uint32_t biSize; int32_t biWidth, biHeight; uint16_t biPlanes, 
 #include "hdvox.h"
 #include "recomp_target.h"
 
+/* Guest addresses (the game's variables, ecx, esp) as host pointers and
+ * back: the same on Windows, where the guest's VAs are the host's; through
+ * win32hle off it, where on a 64-bit host the guest's memory is one block. */
+#ifdef _WIN32
+#define GPTR(va) ((void*)(uintptr_t)(uint32_t)(va))
+#define GVA(p)   ((uint32_t)(uintptr_t)(p))
+#else
+#define GPTR(va) hle_ptr((uint32_t)(va))
+#define GVA(p)   hle_va(p)
+#endif
+
 #ifdef RA2_TARGET_GAMEMD
-#define VOX_COLOUR ((uint8_t*)(uintptr_t)0x00B2FF78u)   /* 256x256 palette indices */
-#define VOX_DEPTH  ((uint8_t*)(uintptr_t)0x00B1D5E0u)   /* 256x256, with the Z flag */
-#define VOX_BBOX   ((uint32_t*)(uintptr_t)0x00B2FB60u)  /* x, y, w, h, list count */
-#define VOX_PAL    ((const uint8_t*)(uintptr_t)0x00B2FB78u)
-#define STAGING    (*(const uint32_t*)(uintptr_t)0x00B1D13Cu)
-#define FRAME_SURF (*(const uint32_t*)(uintptr_t)0x00887308u)
+#define VOX_COLOUR ((uint8_t*)GPTR(0x00B2FF78u))   /* 256x256 palette indices */
+#define VOX_DEPTH  ((uint8_t*)GPTR(0x00B1D5E0u))   /* 256x256, with the Z flag */
+#define VOX_BBOX   ((uint32_t*)GPTR(0x00B2FB60u))  /* x, y, w, h, list count */
+#define VOX_PAL    ((const uint8_t*)GPTR(0x00B2FB78u))
+#define STAGING    (*(const uint32_t*)GPTR(0x00B1D13Cu))
+#define FRAME_SURF (*(const uint32_t*)GPTR(0x00887308u))
 #define VOX_DIRTY  0x00B1CFC0u                           /* the staging's dirty rect */
 #define VOX_SHADOW 0x00B2D928u                           /* the shadow mask buffer */
 #else                                                    /* Red Alert 2's, by shape */
-#define VOX_COLOUR ((uint8_t*)(uintptr_t)0x00AE3408u)
-#define VOX_DEPTH  ((uint8_t*)(uintptr_t)0x00AD0A70u)
-#define VOX_BBOX   ((uint32_t*)(uintptr_t)0x00AE2FF0u)
-#define VOX_PAL    ((const uint8_t*)(uintptr_t)0x00AE3008u)
-#define STAGING    (*(const uint32_t*)(uintptr_t)0x00AD0604u)
-#define FRAME_SURF (*(const uint32_t*)(uintptr_t)0x00839950u)
+#define VOX_COLOUR ((uint8_t*)GPTR(0x00AE3408u))
+#define VOX_DEPTH  ((uint8_t*)GPTR(0x00AD0A70u))
+#define VOX_BBOX   ((uint32_t*)GPTR(0x00AE2FF0u))
+#define VOX_PAL    ((const uint8_t*)GPTR(0x00AE3008u))
+#define STAGING    (*(const uint32_t*)GPTR(0x00AD0604u))
+#define FRAME_SURF (*(const uint32_t*)GPTR(0x00839950u))
 #define VOX_DIRTY  0x00AD0490u
 #define VOX_SHADOW 0x00AE0DB8u
 #endif
@@ -164,7 +175,7 @@ static int hd_begin(uint32_t save, uint32_t len, int memo_ok);
 
 /* After 0x00754510: rect is the 6-dword rect it returned. */
 int ra2_vox_hd_begin(uint32_t rect) {
-    return hd_begin(rect, 24, memo_rect((const uint32_t*)(uintptr_t)rect));
+    return hd_begin(rect, 24, memo_rect((const uint32_t*)GPTR(rect)));
 }
 
 /* After 0x007542F0, which writes its results through pointers: save is the
@@ -207,7 +218,7 @@ static int hd_begin(uint32_t save, uint32_t len, int memo_ok) {
     memcpy(g_pass[0], VOX_COLOUR, 65536);
     memcpy(g_depth, VOX_DEPTH, 65536);
     memcpy(g_bbox, VOX_BBOX, sizeof g_bbox);
-    g_rect_at = (uint32_t*)(uintptr_t)save;
+    g_rect_at = (uint32_t*)GPTR(save);
     g_rect_len = len;
     memcpy(g_rect, g_rect_at, len);
     return 1;
@@ -258,7 +269,7 @@ uint32_t ra2_vox_hd_end(void) {
         QueryPerformanceCounter(&t);
         g_hd_ticks += t.QuadPart - g_t0.QuadPart;
     }
-    return (uint32_t)(uintptr_t)g_rect_at;
+    return GVA(g_rect_at);
 }
 
 /* ---- 2. parts into staging ---------------------------------------------------- */
@@ -274,7 +285,7 @@ static stamp_t g_stamps[MAX_STAMPS];
 static int g_nstamps, g_stamp_open;
 static int g_src_x, g_src_y;              /* the part's rect in the voxel buffer */
 
-static uint8_t* staging_px(void) { return (uint8_t*)(uintptr_t)((const uint32_t*)(uintptr_t)STAGING)[5]; }
+static uint8_t* staging_px(void) { return (uint8_t*)GPTR(((const uint32_t*)GPTR(STAGING))[5]); }
 
 static int g_direct_open, g_dir_x, g_dir_y, g_dir_w, g_dir_h, g_dir_sx, g_dir_sy;
 static uint32_t g_dir_dest;
@@ -287,9 +298,9 @@ static uint16_t g_before[480 * 1024], g_after[480 * 1024];
 /* 0x00707233, before 0x004AF2A0: ecx the destination, then on the stack the
  * source surface, its rect (x, y, w, h) and the destination point. */
 void ra2_vox_hd_blit(uint32_t dest, uint32_t convert, uint32_t esp) {
-    const uint32_t* a = (const uint32_t*)(uintptr_t)esp;
-    const int32_t* r = (const int32_t*)(uintptr_t)a[1];
-    const int32_t* pt = (const int32_t*)(uintptr_t)a[2];
+    const uint32_t* a = (const uint32_t*)GPTR(esp);
+    const int32_t* r = (const int32_t*)GPTR(a[1]);
+    const int32_t* pt = (const int32_t*)GPTR(a[2]);
     (void)convert;
     g_stamp_open = 0;
     g_direct_open = 0;
@@ -388,7 +399,7 @@ static void rec_commit(void) {
  * battlefield: the battlefield around it before (and after, in
  * ra2_vox_hd_blitted) the blit. */
 static void direct_blit(uint32_t dest, const int32_t* r, const int32_t* pt) {
-    const uint32_t* ds = (const uint32_t*)(uintptr_t)dest;
+    const uint32_t* ds = (const uint32_t*)GPTR(dest);
     if (ds[4] != 2) return;
     int x = pt[0], y = pt[1], w = r[2], h = r[3], sx = r[0], sy = r[1];
     if (x < 0) sx -= x, w += x, x = 0;
@@ -447,7 +458,7 @@ static int g_cx, g_cy, g_cw, g_ch, g_sx, g_sy, g_copy_open;
 static int dsurf_read(uint32_t ds, int x, int y, int w, int h, uint16_t* out) {
     uint8_t* px;
     int sw, sh, pitch, bpp;
-    if (!hle_dd_surface_pixels(((const uint32_t*)(uintptr_t)ds)[7], &px, &sw, &sh, &pitch, &bpp) || bpp != 16) return 0;
+    if (!hle_dd_surface_pixels(((const uint32_t*)GPTR(ds))[7], &px, &sw, &sh, &pitch, &bpp) || bpp != 16) return 0;
     if (x < 0 || y < 0 || x + w > sw || y + h > sh) return 0;
     for (int j = 0; j < h; j++) memcpy(out + j * w, px + (size_t)(y + j) * pitch + (size_t)x * 2, (size_t)w * 2);
     return 1;
@@ -458,7 +469,7 @@ static IDirectDrawSurface* dsurf_dd(uint32_t ds) { return (IDirectDrawSurface*)(
 /* Copy w x h 16-bit pixels at (x, y) of a game DSurface out (dir 0) or back. */
 static int dsurf_read(uint32_t ds, int x, int y, int w, int h, uint16_t* out) {
     IDirectDrawSurface* dd = dsurf_dd(ds);
-    const uint32_t* f = (const uint32_t*)(uintptr_t)ds;
+    const uint32_t* f = (const uint32_t*)GPTR(ds);
     DDSURFACEDESC d;
     /* Locked by the game (count at +0x0C, pixels at +0x14): read through its
      * pointer, with the pitch DirectDraw reports for the surface. */
@@ -488,16 +499,16 @@ static int dsurf_read(uint32_t ds, int x, int y, int w, int h, uint16_t* out) {
 /* 0x0073B43F, before 0x004373B0: ecx the battlefield surface; on the stack the
  * destination rect, the staging surface, the (clipped) source rect. */
 void ra2_vox_unit_copy(uint32_t dest, uint32_t esp) {
-    const uint32_t* a = (const uint32_t*)(uintptr_t)esp;
-    const int32_t* dr = (const int32_t*)(uintptr_t)a[0];
-    const int32_t* sr = (const int32_t*)(uintptr_t)a[2];
-    const uint32_t* ds = (const uint32_t*)(uintptr_t)dest;
+    const uint32_t* a = (const uint32_t*)GPTR(esp);
+    const int32_t* dr = (const int32_t*)GPTR(a[0]);
+    const int32_t* sr = (const int32_t*)GPTR(a[2]);
+    const uint32_t* ds = (const uint32_t*)GPTR(dest);
     g_copy_open = 0;
     if (!HD_LIVE || a[1] != STAGING) { g_nstamps = 0; return; }
     /* The source is the staging's dirty rect, the parts' union (0x00B1CFC0);
      * the stack's third rect is only the staging's bounds. Clip the
      * destination to the surface, the source with it. */
-    const int32_t* dirty = (const int32_t*)(uintptr_t)VOX_DIRTY;
+    const int32_t* dirty = (const int32_t*)GPTR(VOX_DIRTY);
     int x = dr[0], y = dr[1], w = dr[2], h = dr[3], sx = dirty[0], sy = dirty[1];
     (void)sr;
     if (x < 0) sx -= x, w += x, x = 0;
@@ -561,10 +572,10 @@ static long g_sh_records, g_sh_skipped;
 /* 0x00707431, before 0x004AF2A0: ecx the destination; on the stack the voxel
  * surface, the shadow's rect in it and the destination point. */
 void ra2_vox_shadow_blit(uint32_t dest, uint32_t esp) {
-    const uint32_t* a = (const uint32_t*)(uintptr_t)esp;
-    const int32_t* r = (const int32_t*)(uintptr_t)a[1];
-    const int32_t* pt = (const int32_t*)(uintptr_t)a[2];
-    const uint32_t* ds = (const uint32_t*)(uintptr_t)dest;
+    const uint32_t* a = (const uint32_t*)GPTR(esp);
+    const int32_t* r = (const int32_t*)GPTR(a[1]);
+    const int32_t* pt = (const int32_t*)GPTR(a[2]);
+    const uint32_t* ds = (const uint32_t*)GPTR(dest);
     g_sh_open = 0;
     if (!HD_LIVE || a[0] != VOX_SHADOW) return;
     if (ds[4] != 2) { g_sh_skipped++; return; }  /* not the 16-bit battlefield */

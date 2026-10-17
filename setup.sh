@@ -1,14 +1,15 @@
 #!/bin/bash
-# macOS and Linux setup: the same pipeline as Setup.cmd. On Linux each game is
-# built as a native program (build-linux.sh: no Wine); on a Mac, or on Linux
-# with --wine, the Windows exe is cross-compiled here and played under Wine
-# (CrossOver on a Mac). On a Mac Red Alert 2 has to be installed in a
-# CrossOver bottle (Steam for Windows in a bottle, then the game from your
-# library); on Linux, from Steam (it runs it with Proton) or anywhere else.
+# macOS and Linux setup: the same pipeline as Setup.cmd. Each game is built
+# as a native program: on Linux a 32-bit one (build-linux.sh), on a Mac a
+# 64-bit one (build-macos.sh), with no Wine either way. With --wine the
+# Windows exe is cross-compiled here instead and played under Wine
+# (CrossOver on a Mac). The game is wherever your copy is: on a Mac a folder
+# anywhere, or Steam for Windows in a CrossOver bottle; on Linux from Steam
+# (it runs it with Proton) or anywhere else.
 #
 #   ./setup.sh                 # both games
 #   ./setup.sh yr              # only Yuri's Revenge (or: ra2)
-#   ./setup.sh --wine          # on Linux: the Windows exes, under Wine
+#   ./setup.sh --wine          # the Windows exes, under Wine (CrossOver on a Mac)
 #   ./setup.sh --force         # redo every step
 #   ./setup.sh --yes           # install what is missing without asking
 #   ./setup.sh --game-dir DIR  # the install to use, instead of searching Steam
@@ -35,7 +36,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-MAC=0; [ "$(uname)" = Darwin ] && MAC=1 && NATIVE=0
+MAC=0; [ "$(uname)" = Darwin ] && MAC=1
 
 say()  { printf '%s\n' "$*"; }
 step() { printf '\n\033[36m%s\033[0m\n' "$*"; }
@@ -51,8 +52,15 @@ have() { command -v "$1" >/dev/null || ls /usr/lib/llvm-*/bin/"$1" >/dev/null 2>
 step "Checking the tools"
 if [ "$MAC" = 1 ]; then
   command -v brew >/dev/null || fail "Homebrew is needed: https://brew.sh"
+  if [ "$NATIVE" = 1 ]; then
+    # Apple's clang (the command line tools); SDL2, SDL2_ttf and ffmpeg (the Bink movies)
+    xcode-select -p >/dev/null 2>&1 || fail "Xcode's command line tools are needed: xcode-select --install"
+    formulas="cmake ninja pkgconf sdl2 sdl2_ttf ffmpeg uv"
+  else
+    formulas="llvm lld cmake ninja xwin uv"
+  fi
   need=()
-  for f in llvm lld cmake ninja xwin uv; do brew list --formula "$f" >/dev/null 2>&1 || need+=("$f"); done
+  for f in $formulas; do brew list --formula "$f" >/dev/null 2>&1 || need+=("$f"); done
   if [ ${#need[@]} -gt 0 ]; then
     ask "  Install ${need[*]} with Homebrew?" || fail "${need[*]} are required."
     brew install "${need[@]}"
@@ -146,15 +154,16 @@ if [ ! -d "$PCRECOMP/runtime/native32" ]; then
 fi
 # Under Wine, callbacks into lifted code need DEP turned on and a fetch that
 # Wine reports as a read accepted (runtime/native32/native32.c). The native
-# host is the lifted game on win32hle's DirectDraw, DirectSound, Bink and windows.
-# An older clone has neither: it is updated (pcrecomp's main has both).
+# host is the lifted game on win32hle's DirectDraw, DirectSound, Bink and windows,
+# with its guest memory (guest_mem.c): on a Mac the guest's 4 GB in a 64-bit
+# program. An older clone has none of it: it is updated.
 # And a lifter with MMX paddusb (without it every light, an explosion's or a
 # Tesla shot's, draws as a black circle) and a sar that sign-extends byte and
 # word operands, the later of the two.
 toolkit_ok() {
   grep -q SetProcessDEPPolicy "$PCRECOMP/runtime/native32/native32.c" &&
     grep -q 'int{w}_t' "$PCRECOMP/tools/lift/lift32.py" &&
-    { [ "$NATIVE" != 1 ] || [ -f "$PCRECOMP/runtime/win32hle/bink.c" ]; }
+    { [ "$NATIVE" != 1 ] || { [ -f "$PCRECOMP/runtime/win32hle/bink.c" ] && [ -f "$PCRECOMP/runtime/win32hle/guest_mem.c" ]; }; }
 }
 if ! toolkit_ok && [ -d "$PCRECOMP/.git" ]; then
   say "  $PCRECOMP is older than this build needs."
@@ -162,11 +171,11 @@ if ! toolkit_ok && [ -d "$PCRECOMP/.git" ]; then
     git -C "$PCRECOMP" pull -q --ff-only || fail "could not update $PCRECOMP (local changes, or not on main?)."
   fi
 fi
-toolkit_ok || fail "$PCRECOMP is too old for this build: update it (git -C \"$PCRECOMP\" pull)."
+toolkit_ok || fail "$PCRECOMP is too old for this build: update it (git -C \"$PCRECOMP\" pull)$([ "$MAC" = 1 ] && [ "$NATIVE" = 1 ] && echo ", or ./setup.sh --wine for CrossOver")."
 export PCRECOMP
 say "  pcrecomp: $PCRECOMP"
 
-if [ "$MAC" = 1 ]; then
+if [ "$MAC" = 1 ] && [ "$NATIVE" = 0 ]; then
   WINE=/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine
   [ -x "$WINE" ] || fail "CrossOver is needed: https://www.codeweavers.com/crossover"
 fi
@@ -176,8 +185,9 @@ GAME_SUB="steamapps/common/Command & Conquer Red Alert II"
 if [ ! -e game ]; then
   found=""
   if [ "$MAC" = 1 ]; then
-    step "Finding Red Alert 2 in your CrossOver bottles"
-    candidates=("$HOME/Library/Application Support/CrossOver/Bottles"/*/drive_c/Program\ Files*/Steam/"$GAME_SUB")
+    step "Finding Red Alert 2 in your CrossOver bottles and Steam library"
+    candidates=("$HOME/Library/Application Support/CrossOver/Bottles"/*/drive_c/Program\ Files*/Steam/"$GAME_SUB"
+                "$HOME/Library/Application Support/Steam/$GAME_SUB")
   else
     step "Finding Red Alert 2 in your Steam libraries"
     candidates=()
@@ -204,7 +214,7 @@ if [ ! -e game ]; then
 fi
 GAME_DIR=$(cd game && pwd -P)
 say "  game/ -> $GAME_DIR"
-if [ "$MAC" = 1 ]; then
+if [ "$MAC" = 1 ] && [ "$NATIVE" = 0 ]; then
   case "$GAME_DIR" in
     */CrossOver/Bottles/*) BOTTLE=${GAME_DIR#*/CrossOver/Bottles/}; BOTTLE=${BOTTLE%%/*} ;;
     *) BOTTLE=${CX_BOTTLE:-Steam} ;;
@@ -242,12 +252,13 @@ for g in $GAMES; do
     grep "lifted" "$work/lift.log" | tail -1
   fi
   if [ "$NATIVE" = 1 ]; then
-    lbuild=${build/build/build-linux}
+    os=$([ "$MAC" = 1 ] && echo macos || echo linux)
+    lbuild=${build/build/build-$os}
     step "$name: building $lbuild/ra2 (10 to 30 minutes)"
     # always: the build only compiles what changed, so a pulled fix reaches it
     [ "$FORCE" = 1 ] && rm -rf "$lbuild"
-    BUILD_DIR=$lbuild CMAKE_ARGS=-DRA2_TARGET=$target ./build-linux.sh > "$work/build-linux.log" 2>&1 ||
-      fail "the build failed: see $work/build-linux.log"
+    BUILD_DIR=$lbuild CMAKE_ARGS=-DRA2_TARGET=$target ./build-$os.sh > "$work/build-$os.log" 2>&1 ||
+      fail "the build failed: see $work/build-$os.log"
   else
     step "$name: building $build/ra2.exe (10 to 20 minutes)"
     [ "$FORCE" = 1 ] && rm -rf "$build"
@@ -255,7 +266,7 @@ for g in $GAMES; do
       fail "the build failed: see $work/build.log"
   fi
   if [ "$NATIVE" = 1 ]; then
-    launcher="$name (recomp).sh"
+    launcher="$name (recomp).$([ "$MAC" = 1 ] && echo command || echo sh)"
     cat > "$launcher" <<EOF
 #!/bin/sh
 # Plays the recompiled game, natively: scaling F12, fullscreen F11.

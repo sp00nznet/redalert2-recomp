@@ -72,6 +72,7 @@ which becomes host arguments:
 | `--waitlog TEXT@s` | hold the script until the game's debug log prints TEXT |
 | `--key [c][s][a]+vk@s`, `--move x,y@s`, `--click [c][s][a]+x,y@s`, `--wait VA@s` | as in civ3; a click can hold Ctrl, Shift, Alt (Ctrl+click is force-fire) |
 | `--drag x1,y1,x2,y2@s` | a band selection: button down at one corner, across, up at the other |
+| `--uclick x,y@s` | the native host only: a click as the mouse gives it, to the window under the point (a menu's own control, a combo box's arrow), where `--click` goes to the game's window |
 
 `s` counts seconds from when the main menu first opened (civ3: then a script
 does not depend on how long the boot took). A press and a waitlog wait for
