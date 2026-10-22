@@ -5,6 +5,12 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- Linux and macOS: Red Alert 2 seemed to freeze after a resolution was picked
+  in its Options screen, with the music still playing (#24). The box that
+  asks to confirm the change was painted under the Options screen, so there
+  was nothing to click. Needs a current pcrecomp (window z-order).
+
 ## [0.1.0-alpha.3] - 2026-10-21
 
 ### Added

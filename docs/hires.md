@@ -57,6 +57,13 @@ display's own size (its logical size on a Retina Mac). On Windows the modes
 are your display's, which can be larger than the presenter shows, so the key
 is left to you and F10 is the way past 1024x768.
 
+Yuri's Revenge only saves the size picked there, for the next battle. Red
+Alert 2 changes to it at once: a box asks to confirm, the menus come back at
+the new size, and the same box asks whether to keep it (else the old mode
+returns after a few seconds). Off Windows that box was painted under the
+Options screen and the game seemed frozen (#24); it needs pcrecomp with
+window z-order (`SetWindowPos`). The `options-resolution` playtest walks it.
+
 A larger resolution shows more of the battlefield, not a bigger picture: the
 art stays at its native size, and the presenter's sharp scaling is what makes
 it large on a 4K screen.

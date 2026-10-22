@@ -86,28 +86,32 @@ OPTIONS, LAN, MOVIES, KEYBOARD, CONFIRM, NEWLAN = 0xD5, 0xBB, 0x101, 0xA3, 0x120
 _dialogs = None
 
 
-def control(dlg, label):
-    """Control ID of the button captioned GUI:<label> in dialog `dlg`."""
+def controls(dlg):
+    """Dialog `dlg`'s controls, from tools/dialogs.py's map of the game's."""
     global _dialogs
     if _dialogs is None:
         if not os.path.exists(DIALOGS):
             subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'dialogs.py'), '--exe',
                             os.path.join(ROOT, 'game', GAME_EXE), '--out', DIALOGS], check=True)
         _dialogs = json.load(open(DIALOGS))
-    for c in _dialogs['0x%X' % dlg]['controls']:
+    return _dialogs['0x%X' % dlg]['controls']
+
+
+def control(dlg, label):
+    """Control ID of the button captioned GUI:<label> in dialog `dlg`."""
+    for c in controls(dlg):
         if c['text'] == 'GUI:' + label:
             return c['id']
     raise KeyError('no GUI:%s in dialog 0x%X' % (label, dlg))
 
 
-def combo_point(dlg, cid, item=None):
-    """Screen pixels for a combo box of dialog `dlg` (a full-screen menu at
-    0, 0): its arrow, or with `item` that row of its list once dropped. Dialog
-    units are win32hle's (6/4 across, 13/8 down); the field is 21 pixels and
-    the game's list rows 23."""
-    control(dlg, 'Back')                                # loads the dialogs
-    x, y, w, _ = next(c['rect'] for c in _dialogs['0x%X' % dlg]['controls'] if c['id'] == cid)
-    left, top, right = x * 6 // 4, y * 13 // 8, (x + w) * 6 // 4
+def combo_point(dlg, cid, item=None, at=(0, 0)):
+    """Screen pixels for a combo box of dialog `dlg` (a menu at `at`, 0, 0
+    for a full-screen one): its arrow, or with `item` that row of its list
+    once dropped. Dialog units are win32hle's (6/4 across, 13/8 down); the
+    field is 21 pixels and the game's list rows 23."""
+    x, y, w, _ = next(c['rect'] for c in controls(dlg) if c['id'] == cid)
+    left, top, right = at[0] + x * 6 // 4, at[1] + y * 13 // 8, at[0] + (x + w) * 6 // 4
     if item is None:
         return right - 8, top + 10
     return (left + right) // 2, top + 21 + 23 * item + 11
@@ -232,6 +236,23 @@ case('sp-load', SP().press(SINGLE, 'LoadSavedGame', LOADGAME))
 
 # Options' sub-screens and the movie/credit players.
 case('options-keyboard', S().press(MAIN, 'Options', OPTIONS).press(OPTIONS, 'Keyboard', KEYBOARD))
+# A resolution picked from the Options screen's own list (issue #24), from
+# 800x600, where Red Alert 2's panel is at 80, 59 and Yuri's Revenge's at 0,
+# 0; the list's fourth row, 1152x864. Yuri's Revenge only saves it. Red Alert
+# 2 switches there and then: a box to confirm (dialog 0xD9, clicked with the
+# mouse at its OK), the new mode, and the same box again to keep it. The box
+# was painted under the Options screen and the game looked frozen. Headless,
+# the host leaves the INI alone, so the case asks for the large modes itself.
+if NATIVE:
+    at = (80, 59) if TARGET == 'game' else (0, 0)
+    pick = (S().press(MAIN, 'Options', OPTIONS).uclick(*combo_point(OPTIONS, 1773, at=at), after=3)
+            .uclick(*combo_point(OPTIONS, 1773, item=3, at=at), after=2))
+    video = {'Video': {'ScreenWidth': 800, 'ScreenHeight': 600, 'AllowHiResModes': 'yes'}}
+    if TARGET == 'game':
+        case('options-resolution', pick.uclick(547, 400, after=2).press(0xD9, 'Ok').press(OPTIONS, 'MainMenu', MAIN),
+             90, dialogs=[OPTIONS, 0xD9, MAIN], size=(1152, 864), ini=video)
+    else:
+        case('options-resolution', pick.press(OPTIONS, 'MainMenu', MAIN), 90, dialogs=[OPTIONS], ini=video)
 case('movies-credits', S().press(MAIN, 'MoviesAndCredits', MOVIES).press(MOVIES, 'ViewCredits'), 90)
 case('movies-sneakpeeks', S().press(MAIN, 'MoviesAndCredits', MOVIES).press(MOVIES, 'SneakPeeks'), 90)
 
