@@ -58,9 +58,6 @@ install -d %{buildroot}%{_mandir}/man1
 gzip -9 -n -c packaging/common/redalert2-recomp-setup.1 > %{buildroot}%{_mandir}/man1/redalert2-recomp-setup.1.gz
 gzip -9 -n -c packaging/common/redalert2-recomp-play.1 > %{buildroot}%{_mandir}/man1/redalert2-recomp-play.1.gz
 
-install -d %{buildroot}%{_licensedir}/%{name}
-install -m644 LICENSE NOTICE.md %{buildroot}%{_licensedir}/%{name}/
-
 %files
 %{_datadir}/%{name}/
 %{_bindir}/redalert2-recomp-setup
