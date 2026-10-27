@@ -65,6 +65,11 @@ makepkg --printsrcinfo > .SRCINFO
 git add PKGBUILD .SRCINFO && git commit -m "upstream snapshot" && git push
 ```
 
+NOTE: generate `.SRCINFO` from a pristine copy only. A full `makepkg` run
+rewrites `pkgver=`/`pkgrel=` in the build directory's PKGBUILD, so an
+`.SRCINFO` made afterwards freezes a stale version — always re-copy the
+PKGBUILD first if that directory has ever built.
+
 ## The 1-liner
 
 ```sh
