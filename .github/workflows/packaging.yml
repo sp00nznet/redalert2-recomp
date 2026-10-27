@@ -1,0 +1,46 @@
+# Linux packaging: the wrappers install cleanly and the .deb/.rpm stage.
+name: packaging
+
+on:
+  push:
+    branches: [main]
+    paths: ["packaging/**", ".github/workflows/packaging.yml"]
+  pull_request:
+    paths: ["packaging/**", ".github/workflows/packaging.yml"]
+  workflow_dispatch:
+
+jobs:
+  packaging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax-check every shell file
+        run: |
+          set -e
+          for f in packaging/install.sh \
+                   packaging/deb/build-deb.sh \
+                   packaging/rpm/build-rpm.sh \
+                   packaging/appimage/build-appimage.sh \
+                   packaging/common/redalert2-recomp-setup \
+                   packaging/common/redalert2-recomp-play \
+                   packaging/aur/PKGBUILD; do
+            bash -n "$f" && echo "ok: $f"
+          done
+      - name: Stage the .deb payload (no i386 deps needed to pack)
+        run: |
+          ./packaging/deb/build-deb.sh
+          dpkg-deb -c dist/redalert2-recomp_*_amd64.deb
+          dpkg-deb -f dist/redalert2-recomp_*_amd64.deb Package Version Architecture Depends | tee deb-info.txt
+          test "$(dpkg-deb -f dist/redalert2-recomp_*_amd64.deb Package)" = redalert2-recomp
+      - name: Lint the .rpm spec
+        run: |
+          grep -q '^Version: [0-9]' packaging/rpm/redalert2-recomp.spec
+          grep -q 'redalert2-recomp-setup' packaging/rpm/redalert2-recomp.spec
+          echo "spec ok"
+      - name: Desktop files validate
+        run: |
+          for d in packaging/common/*.desktop; do
+            grep -q '^Exec=redalert2-recomp-play' "$d" || exit 1
+            grep -q '^Icon=redalert2-recomp$' "$d" || exit 1
+            echo "ok: $d"
+          done

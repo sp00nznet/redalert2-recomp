@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Yuri's Revenge (recomp)
+GenericName=Real-time strategy game
+Comment=Static recompilation of Yuri's Revenge (needs your own copy of the game)
+Exec=redalert2-recomp-play yr
+Icon=redalert2-recomp
+Terminal=false
+Categories=Game;StrategyGame;
+Keywords=ra2;yuri;revenge;recomp;command;conquer;
+StartupNotify=false

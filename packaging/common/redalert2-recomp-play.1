@@ -1,0 +1,21 @@
+.TH REDALERT2-RECOMP-PLAY 1 "October 2026" "redalert2-recomp 0.1.3" "Games Manual"
+.SH NAME
+redalert2-recomp-play \- play the recompiled Red Alert 2 or Yuri's Revenge
+.SH SYNOPSIS
+.B redalert2-recomp-play
+.RI [ yr | ra2 ]
+.RI [ args... ]
+.SH DESCRIPTION
+Runs an already-built native game out of
+.IR ~/.local/share/redalert2-recomp :
+.I build-linux/ra2
+(Yuri's Revenge) or
+.I build-linux-game/ra2
+(Red Alert 2), with
+.B --run
+plus any extra args passed through. If nothing is built yet it tells you to
+run
+.BR redalert2-recomp-setup (1)
+first.
+.SH SEE ALSO
+.BR redalert2-recomp-setup (1)

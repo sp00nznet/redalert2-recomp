@@ -1,0 +1,57 @@
+#!/bin/sh
+# redalert2-recomp-setup: build and update the recompiled games.
+#
+# The package ships a pristine source tree in /usr/share/redalert2-recomp.
+# The actual pipeline (analyse, lift, compile: 30-60 minutes the first time,
+# ~6 GB) runs in a per-user copy, because /usr/share is read-only and the
+# build reads your own copy of the game anyway.
+#
+#   redalert2-recomp-setup                # both games
+#   redalert2-recomp-setup yr             # only Yuri's Revenge (or: ra2)
+#   redalert2-recomp-setup --yes          # install nothing interactively
+#   redalert2-recomp-setup --game-dir DIR # use this install, skip Steam search
+#
+# Everything else is setup.sh's (run it with --help-ish flags straight
+# through: --force, --wine, ...). On upgrade the source is re-synced while
+# your expensive state (game link, function catalogues, lifted C) is kept, so
+# a packaging update costs a recompile, not a re-lift.
+set -e
+SRC=/usr/share/redalert2-recomp
+DST=${XDG_DATA_HOME:-$HOME/.local/share}/redalert2-recomp
+VER_FILE=.pkg-version
+
+want=$(cat "$SRC/$VER_FILE" 2>/dev/null || echo unknown)
+have=$(cat "$DST/$VER_FILE" 2>/dev/null || echo none)
+
+if [ ! -f "$DST/setup.sh" ] || [ "$want" != "$have" ]; then
+    if [ -f "$DST/setup.sh" ]; then
+        echo "redalert2-recomp: updating user copy $have -> $want (keeping game link, work/ and lifted C)"
+    else
+        echo "redalert2-recomp: first run, copying source to $DST"
+    fi
+    mkdir -p "$DST"
+    KEEP=$(mktemp -d)
+    # State worth keeping across re-syncs: the link to your install, the
+    # function catalogues and RTTI dumps (15 min to redo), the lifted C
+    # (minutes to redo), and the Python venv with pefile/capstone.
+    for p in game work src/recomp/gen src/recomp/gen_game .venv; do
+        if [ -e "$DST/$p" ] || [ -L "$DST/$p" ]; then
+            mkdir -p "$KEEP/$(dirname "$p")"
+            mv "$DST/$p" "$KEEP/$p"
+        fi
+    done
+    # Clear the rest (old build dirs hold absolute paths; they reconfigure).
+    find "$DST" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+    cp -a "$SRC/." "$DST/"
+    for p in game work src/recomp/gen src/recomp/gen_game .venv; do
+        if [ -e "$KEEP/$p" ] || [ -L "$KEEP/$p" ]; then
+            # Whatever the old tree had, the new one may not have dirs for.
+            mkdir -p "$DST/$(dirname "$p")"
+            rm -rf "$DST/$p"
+            mv "$KEEP/$p" "$DST/$p"
+        fi
+    done
+    rm -rf "$KEEP"
+fi
+
+exec "$DST/setup.sh" "$@"

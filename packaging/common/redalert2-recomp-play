@@ -1,0 +1,32 @@
+#!/bin/sh
+# redalert2-recomp-play: play an already-built game.
+#
+#   redalert2-recomp-play yr [--fullscreen ...]   # Yuri's Revenge (default)
+#   redalert2-recomp-play ra2                    # Red Alert 2
+#
+# Builds happen in the per-user copy (see redalert2-recomp-setup). If nothing
+# is built yet it says so instead of failing obscurely inside the tree.
+set -e
+DST=${XDG_DATA_HOME:-$HOME/.local/share}/redalert2-recomp
+
+case "${1:-yr}" in
+    ra2) g=ra2; shift ;;
+    yr)  shift ;;
+    -*)  g=yr ;;   # flags: default game, keep them
+    *) echo "usage: $(basename "$0") [yr|ra2] [args...]" >&2; exit 2 ;;
+esac
+
+if [ "$g" = ra2 ]; then
+    exe=build-linux-game/ra2
+else
+    exe=build-linux/ra2
+fi
+
+if [ ! -d "$DST" ] || [ ! -x "$DST/$exe" ]; then
+    echo "redalert2-recomp-play: no built $g here yet." >&2
+    echo "Run: redalert2-recomp-setup $g   (needs your own copy of the game)" >&2
+    exit 1
+fi
+
+cd "$DST"
+exec "$exe" --run "$@"
