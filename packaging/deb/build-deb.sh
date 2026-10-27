@@ -74,5 +74,5 @@ EOF
 chmod 755 "$PKG/DEBIAN/postinst"
 
 mkdir -p "$OUT_DIR"
-dpkg-deb --build "$PKG" "$OUT_DIR/redalert2-recomp_${VER}_amd64.deb"
+dpkg-deb --root-owner-group --build "$PKG" "$OUT_DIR/redalert2-recomp_${VER}_amd64.deb"
 echo "wrote $OUT_DIR/redalert2-recomp_${VER}_amd64.deb"

@@ -9,6 +9,8 @@ URL:            https://github.com/sp00nznet/redalert2-recomp
 Source0:        %{name}-%{version}.tar.gz
 
 BuildArch:      x86_64
+# Payload is scripts + source: no ELF binaries, so no debuginfo subpackage.
+%global debug_package %{nil}
 # Native 32-bit pipeline (setup.sh names these): gcc -m32 plus SDL2/ffmpeg
 # for i686. Bink movies need the libav* ones; without them build with
 # CMAKE_ARGS=-DWITH_FFMPEG=OFF ./build-linux.sh (no intro/cutscene movies).
