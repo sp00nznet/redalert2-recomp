@@ -95,7 +95,7 @@ cat > "$BIN/redalert2-recomp-play" <<EOF
 DST="$DST"
 case "\${1:-yr}" in
     ra2) g=ra2; shift ;;
-    yr)  shift ;;
+    yr)  g=yr; shift ;;
     -*)  g=yr ;;
     *) echo "usage: \$(basename "\$0") [yr|ra2] [args...]" >&2; exit 2 ;;
 esac

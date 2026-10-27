@@ -11,7 +11,7 @@ DST=${XDG_DATA_HOME:-$HOME/.local/share}/redalert2-recomp
 
 case "${1:-yr}" in
     ra2) g=ra2; shift ;;
-    yr)  shift ;;
+    yr)  g=yr; shift ;;
     -*)  g=yr ;;   # flags: default game, keep them
     *) echo "usage: $(basename "$0") [yr|ra2] [args...]" >&2; exit 2 ;;
 esac
