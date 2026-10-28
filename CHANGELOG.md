@@ -5,6 +5,21 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- macOS: `tools/package_macos.py` packages the native host as a
+  double-clickable .app, with its libraries inside (sdl2-compat's dlopened
+  SDL3 among them), the game's icon from its exe, and a first-launch folder
+  picker for the player's own game folder, plus a zip with a README. No game
+  data goes in. Only the Mach-Os are signed (ad hoc), the bundle is not
+  sealed, so the settings inside it may change without macOS calling the app
+  damaged.
+- macOS: `tools/deps-macos.sh` builds the host's libraries (SDL3, sdl2-compat,
+  FreeType, SDL2_ttf, and an ffmpeg cut down to Bink and MP3 decoding) from
+  source with a macOS 11 deployment target, each download checked against a
+  pinned SHA-256. Homebrew's bottles carry the build machine's macOS as their
+  minimum, so an app packaged with them runs nowhere older; built against
+  these, it runs on any Apple Silicon Mac.
+
 ## [0.1.3] - 2026-10-26
 
 ### Fixed

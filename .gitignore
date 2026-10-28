@@ -7,6 +7,11 @@ build-linux-game/
 # Native macOS builds (build-macos.sh)
 build-macos/
 build-macos-game/
+build-macos-compat/
+build-macos-game-compat/
+# tools/deps-macos.sh's libraries, tools/package_macos.py's apps
+deps-macos/
+dist/
 # xwin's download cache, made wherever it is run (setup.sh)
 .xwin-cache/
 out/

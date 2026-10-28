@@ -182,6 +182,25 @@ BUILD_DIR=build-macos-game CMAKE_ARGS=-DRA2_TARGET=game ./build-macos.sh   # Red
 build-macos/ra2 --run
 ```
 
+To give the build to another Mac as an app, `tools/package_macos.py` makes
+`dist/<Game>.app` and a zip of it: the host, its libraries copied in and
+relinked, the game's icon, and a launcher that asks for the game folder on
+the first run. Homebrew's libraries run only on the macOS they were
+built on or newer; for an app that runs on any Apple Silicon Mac, build the
+libraries with `tools/deps-macos.sh` first (macOS 11 target, about five
+minutes) and build the host against them:
+
+```
+tools/deps-macos.sh
+BUILD_DIR=build-macos-compat CMAKE_ARGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 -DCMAKE_BUILD_RPATH=$PWD/deps-macos/lib" \
+  PKG_CONFIG_PATH=$PWD/deps-macos/lib/pkgconfig ./build-macos.sh
+.venv/bin/python tools/package_macos.py --build-dir build-macos-compat
+```
+
+The app is ad-hoc signed, not notarized: the first open on another Mac is
+a right-click, Open (or Privacy & Security, Open Anyway), after moving the
+app out of the download folder with Finder.
+
 The command line, the window (F10, F11, F12), `ra2.ini` and the mods (F9) are
 the Linux host's. On a Mac keyboard the F keys are media keys unless you hold
 fn (or turn on "Use F1, F2, etc. keys as standard function keys"), and macOS
