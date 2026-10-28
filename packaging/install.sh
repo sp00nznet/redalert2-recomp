@@ -30,7 +30,8 @@ done
 SUDO=""; [ "$(id -u)" != 0 ] && SUDO=sudo
 
 say() { printf '%s\n' "$*"; }
-ask() { [ "$YES" = 1 ] && return 0; read -r -p "$1 [Y/n] " r; [[ ! $r =~ ^[nN] ]]; }
+# stdin may be the script itself (curl ... | bash): ask the terminal instead.
+ask() { [ "$YES" = 1 ] && return 0; if [ -c /dev/tty ]; then read -r -p "$1 [Y/n] " r </dev/tty; else read -r -p "$1 [Y/n] " r; fi; [[ ! $r =~ ^[nN] ]]; }
 
 . /etc/os-release 2>/dev/null || { ID=unknown; ID_LIKE=""; }
 case "$ID $ID_LIKE" in
@@ -80,7 +81,6 @@ else
     say "==> Updating $DST"
     git -C "$DST" pull -q --ff-only || say "    (keeping local changes; continuing)"
 fi
-echo "0.1.3+git" > "$DST/.pkg-version" 2>/dev/null || true
 
 mkdir -p "$BIN" "$APPLICATIONS" "$ICONS"
 # The user-level tree IS the per-user copy: thin wrappers exec it directly.
@@ -119,9 +119,16 @@ say "==> Installed wrappers in $BIN (add it to PATH if needed)."
 case ":$PATH:" in *":$BIN:"*) ;; *) say "    export PATH=\"\$HOME/.local/bin:\$PATH\""; ;; esac
 
 if [ "$SETUP" = 1 ]; then
-    args=""; [ "$YES" = 1 ] && args="$args --yes"
-    [ -n "$GAME_ARG" ] && args="$args --game-dir $GAME_ARG"
-    # shellcheck disable=SC2086
-    exec "$DST/setup.sh" $args
+    args=()
+    if [ "$YES" = 1 ]; then args+=(--yes); fi
+    if [ -n "$GAME_ARG" ]; then args+=(--game-dir "$GAME_ARG"); fi
+    # stdin may be the script itself (curl ... | bash): setup.sh asks on
+    # stdin too, so hand it the terminal when there is one. Without one
+    # (a fully --yes run) exec without redirecting.
+    if [ -c /dev/tty ]; then
+        exec "$DST/setup.sh" "${args[@]}" </dev/tty
+    else
+        exec "$DST/setup.sh" "${args[@]}"
+    fi
 fi
 say "Done. Run: redalert2-recomp-setup   (needs your own copy of the game)"

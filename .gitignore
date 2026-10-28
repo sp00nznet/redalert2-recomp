@@ -1,8 +1,6 @@
 # Build output
 build/
 build-game/
-# Packaged artifacts (packaging/*/build-*.sh write here)
-dist/
 # Native Linux builds (build-linux.sh)
 build-linux/
 build-linux-game/
