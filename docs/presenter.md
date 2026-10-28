@@ -50,7 +50,7 @@ A `--scale` or `--fullscreen` on the command line wins over the file.
   sides. `blur` (the default) fills them with a soft, darkened copy of the
   picture stretched over the whole window, so the menus sit in a frame rather
   than a hole; `black` is plain letterboxing. The shader draws the fill first
-  (`mode 5`, a 3x3 box over the picture's ~32-pixel-wide mip, which the
+  (`mode 5`, four bilinear taps of the picture's ~32-pixel-wide mip, which the
   presenter regenerates each frame) and the picture on top.
 - **HD vehicles** (on unless turned off) draws voxel units at twice the
   resolution of the rest of the picture ([voxels.md](voxels.md)); the
