@@ -56,3 +56,6 @@ it play there:
   2x-sized fallback buffer and kept the fallback to 2x.
 - **Quit that leaves** (#33): closing the window or Cmd+Q left the native
   game running with no window; the host now exits if the game doesn't.
+- **A Mac app** (#35): `tools/package_macos.py` packs the native host into a
+  double-clickable `.app` with its libraries inside, and `tools/deps-macos.sh`
+  builds those libraries for macOS 11, so the app runs on any Apple Silicon Mac.
