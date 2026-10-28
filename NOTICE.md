@@ -14,3 +14,11 @@ excluded by `.gitignore`.
 - Lifted code is a derivative work of the binary it came from. Anything the
   pipeline writes into `work/` or `src/recomp/gen*/` carries whatever licence
   the original carries, not this one. The MIT grant stops at our own work.
+
+## ffmpeg.wasm (the web build's movies)
+
+`web/ffmpeg/` holds the `@ffmpeg/core` 0.10.0 build of FFmpeg for
+WebAssembly (https://github.com/ffmpegwasm/ffmpeg.wasm), used by the web
+build to transcode the game's Bink movies in the browser. FFmpeg is licensed
+under the LGPL/GPL; that build enables GPL and nonfree components. It runs
+only in the player's browser.

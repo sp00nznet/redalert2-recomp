@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Red Alert 2 (recomp)</title>
+<script src="coi-serviceworker.js"></script>
+<style>
+  :root { color-scheme: dark; --red: #c81e1e; --red-hi: #ff3b3b; --steel: #9a9ca3; --fg: #e6e6e6; --dim: #9b9ea6; }
+  html, body { margin: 0; height: 100%; background: #000; color: var(--fg); font: 14px/1.45 "Trebuchet MS", "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+  #stage { position: absolute; inset: 0; background: #000; }
+  canvas { display: block; width: 100%; height: 100%; outline: none; }
+  #screen { position: absolute; inset: 0; pointer-events: none; }
+  #stage:fullscreen { background: #000; }
+
+  /* the start screen: a dark red room with a steel panel in it */
+  #start { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+           background: radial-gradient(ellipse at 50% 40%, #3a0606 0%, #170202 45%, #000 100%); }
+  #start::before { content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .35;
+           background: repeating-linear-gradient(0deg, rgba(0,0,0,.35) 0 2px, transparent 2px 4px); }
+  #start::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+           background: radial-gradient(circle at 50% 50%, transparent 55%, rgba(0,0,0,.7) 100%); }
+  #start.hidden { display: none; }
+  .panel { position: relative; z-index: 1; width: min(600px, calc(100% - 32px)); box-sizing: border-box; padding: 26px 30px 24px;
+           background: linear-gradient(180deg, #3b3c41 0%, #26272b 12%, #1a1a1d 70%, #121214 100%);
+           border: 2px solid #5b5d64; border-radius: 4px;
+           box-shadow: inset 0 1px 0 #85878f, inset 0 -1px 0 #0a0a0b, 0 0 0 1px #0d0d0e, 0 24px 60px rgba(0,0,0,.8), 0 0 80px rgba(200,30,30,.18); }
+  .panel::before { content: ''; position: absolute; left: 10px; right: 10px; top: 8px; height: 2px; background: linear-gradient(90deg, transparent, var(--red), transparent); opacity: .9; }
+  .brand { text-align: center; margin: 4px 0 18px; }
+  .brand .cnc { font: bold 12px/1 "Trebuchet MS", sans-serif; letter-spacing: .42em; color: var(--red-hi); text-transform: uppercase; }
+  .brand h1 { margin: 6px 0 0; font: 400 64px/1 Impact, "Arial Narrow", "Helvetica Neue", sans-serif; letter-spacing: .04em; color: #f1f1f1; text-transform: uppercase;
+              text-shadow: 0 2px 0 #4a0b0b, 0 0 18px rgba(255,60,60,.55), 0 0 2px #fff; }
+  .brand h1 span { color: var(--red-hi); }
+  .brand .sub { margin-top: 8px; font-size: 12px; letter-spacing: .28em; text-transform: uppercase; color: var(--steel); }
+  .panel p { margin: 10px 0; color: #cfd0d4; }
+  .panel p.dim { color: var(--dim); font-size: 13px; }
+  .panel code { color: #ff9a9a; font-family: ui-monospace, Menlo, monospace; }
+  .btn { display: inline-block; font: 400 17px/1 Impact, "Arial Narrow", sans-serif; letter-spacing: .12em; text-transform: uppercase; color: #fff;
+         padding: 12px 26px 11px; margin: 4px 8px 4px 0; cursor: pointer; border-radius: 3px;
+         background: linear-gradient(180deg, #e23535 0%, #a51515 48%, #7c0e0e 52%, #560a0a 100%);
+         border: 1px solid #ff6a6a; box-shadow: inset 0 1px 0 rgba(255,255,255,.35), inset 0 -2px 0 rgba(0,0,0,.45), 0 0 14px rgba(255,40,40,.35), 0 3px 0 #2b0404;
+         text-shadow: 0 1px 1px #300; }
+  .btn:hover { filter: brightness(1.15); } .btn:active { transform: translateY(2px); box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 1px 0 #2b0404; }
+  .btn.big { font-size: 22px; padding: 15px 36px 13px; margin: 6px 6px 10px; }
+  .btn.big[disabled] { filter: grayscale(.8) brightness(.6); cursor: default; }
+  #games { text-align: center; }
+  .btn.hidden, .hidden { display: none !important; }
+  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  label.chk { display: inline-flex; align-items: center; gap: 8px; color: #cfd0d4; font-size: 13px; cursor: pointer; }
+  label.chk input { accent-color: var(--red); }
+  #import-progress { width: 100%; height: 12px; appearance: none; border: 1px solid #3a3b40; background: #0b0b0c; border-radius: 2px; margin-top: 8px; }
+  #import-progress::-webkit-progress-bar { background: #0b0b0c; }
+  #import-progress::-webkit-progress-value { background: linear-gradient(180deg, #ff4a4a, #9a1010); box-shadow: 0 0 10px rgba(255,60,60,.6); }
+  #status { min-height: 1.4em; margin-top: 12px; text-align: center; color: var(--steel); font-size: 13px; letter-spacing: .06em; text-transform: uppercase; }
+  #status.busy::after { content: ''; display: inline-block; width: 10px; height: 10px; margin-left: 10px; vertical-align: -1px; border-radius: 50%;
+                        background: var(--red-hi); box-shadow: 0 0 10px var(--red-hi); animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: .15; } }
+  #manage { text-align: center; margin-top: 14px; } #manage a { color: #6f7178; font-size: 12px; }
+  #manage a:hover { color: var(--red-hi); }
+
+  /* a word while playing (a movie being prepared), at the bottom, out of the way */
+  #toast { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 5; padding: 6px 14px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+           color: #ddd; background: rgba(20,20,22,.85); border: 1px solid #5b1010; border-radius: 3px; pointer-events: none; }
+  #toast.hidden { display: none; }
+
+  /* the host's F10 menu */
+  .popup { position: fixed; z-index: 20; min-width: 190px; background: #f0f0f0; color: #000; border: 1px solid #999; box-shadow: 2px 2px 6px rgba(0,0,0,.5); padding: 3px 0; font: 13px system-ui, sans-serif; user-select: none; }
+  .popup div { padding: 4px 28px 4px 26px; position: relative; white-space: nowrap; cursor: default; display: flex; gap: 24px; }
+  .popup div span:last-child { margin-left: auto; color: #555; }
+  .popup div.sel { background: #3875d7; color: #fff; }
+  .popup div.sel span:last-child { color: #dde; }
+  .popup div.gray { color: #888; }
+  .popup div.check::before { content: '\2713'; position: absolute; left: 9px; }
+  .popup div.more::after { content: '\25B8'; position: absolute; right: 9px; }
+  .popup hr { border: 0; border-top: 1px solid #bbb; margin: 3px 1px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+  <canvas id="screen"></canvas>
+  <div id="toast" class="hidden"></div>
+  <div id="start">
+    <div class="panel">
+      <div class="brand">
+        <div class="cnc">Command &amp; Conquer</div>
+        <h1>Red <span>Alert</span> 2</h1>
+        <div class="sub">Static recompilation &middot; in your browser</div>
+      </div>
+      <div id="games" class="hidden">
+        <button id="play-yr" class="btn big" data-game="yr">Yuri's Revenge</button>
+        <button id="play-ra2" class="btn big" data-game="ra2">Red Alert 2</button>
+      </div>
+      <p id="start-text" class="dim hidden">Your settings and saves stay in this browser. In the game: F10 settings, F11 fullscreen, F12 scaling.</p>
+      <div id="import" class="hidden">
+        <p>You need your own copy of <b>Red Alert 2 and Yuri's Revenge</b>. Choose the game's folder, the one with <code>gamemd.exe</code>.
+           It is copied once into this browser's storage and never leaves your computer.</p>
+        <p class="row">
+          <button id="pick" class="btn">Choose the game folder</button>
+          <input type="file" id="pick-input" webkitdirectory multiple class="hidden">
+          <label class="chk"><input type="checkbox" id="movies" checked> Include the movies (about 1 GB more)</label>
+        </p>
+        <progress id="import-progress" max="1000" value="0" class="hidden"></progress>
+        <p id="import-text" class="dim"></p>
+      </div>
+      <div id="status"></div>
+      <p id="manage" class="hidden"><a href="#" id="forget">Remove the imported game folder from this browser</a></p>
+    </div>
+  </div>
+</div>
+<script src="import.js"></script>
+<script>
+  /* Everything the game prints goes to the browser's console (F12). */
+  var statusEl = document.getElementById('status'), toast = document.getElementById('toast'), started = false;
+  function log(s) { console.log(s); }
+  function setStatus(s, busy) {
+    statusEl.textContent = s || '';
+    statusEl.classList.toggle('busy', !!busy);
+    if (started) { toast.textContent = s || ''; toast.classList.toggle('hidden', !s); }
+  }
+  if (!window.SharedArrayBuffer && !('serviceWorker' in navigator)) {
+    setStatus('This page needs SharedArrayBuffer: serve it over HTTPS or localhost, with the cross-origin isolation headers.');
+  }
+  var RA2 = {
+    canvas: document.getElementById('canvas'),
+    arguments: ['--run'].concat(location.search.slice(1).split('&').filter(Boolean).map(decodeURIComponent)),
+    print: function (s) { console.log(s); },
+    printErr: function (s) { console.log(s); if (/^\[(web|screen|bink|movie)\]/.test(s)) setStatus(s.replace(/^\[\w+\]\s*/, ''), true); },
+    ra2Status: function (s) { setStatus(s, !!s); },
+    onAbort: function (what) { setStatus('Stopped: ' + what); console.error(what); },
+    onExit: function (code) {
+      started = false;
+      setStatus('The game exited (' + code + ').');
+      var again = document.getElementById('games');
+      again.innerHTML = '<button class="btn big">Play again</button>';
+      again.firstChild.onclick = function () { location.reload(); };
+      again.classList.remove('hidden');
+      document.getElementById('start').classList.remove('hidden');
+    },
+    setStatus: function (s) { if (s) setStatus(s, true); },
+  };
+  /* The picture: the game's thread hands each frame (RGB565, w x h, in wasm
+     memory) to ra2Present, which draws it with WebGL into #screen, scaled
+     into the rectangle the game's host chose (so the mouse maps the same),
+     sharp-bilinear by default (F12 cycles the modes). */
+  (function () {
+    var screen = document.getElementById('screen'), stage = document.getElementById('stage');
+    var gl, prog, tex, uTs, uOs, uMode, texW = 0, texH = 0;
+    function shader(type, src) {
+      var sh = gl.createShader(type); gl.shaderSource(sh, src); gl.compileShader(sh);
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) log('[present] shader: ' + gl.getShaderInfoLog(sh));
+      return sh;
+    }
+    function init() {
+      gl = screen.getContext('webgl2', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: false })
+        || screen.getContext('webgl', { alpha: false, antialias: false, depth: false });
+      if (!gl) { log('[present] no WebGL'); return false; }
+      prog = gl.createProgram();
+      gl.attachShader(prog, shader(gl.VERTEX_SHADER,
+        'attribute vec2 p; varying vec2 v; void main() { v = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5); gl_Position = vec4(p, 0.0, 1.0); }'));
+      gl.attachShader(prog, shader(gl.FRAGMENT_SHADER,
+        'precision mediump float; varying vec2 v; uniform sampler2D t; uniform vec2 ts; uniform vec2 os; uniform int mode;\n' +
+        'void main() {\n' +
+        '  vec2 texel = v * ts;\n' +
+        '  vec2 uv = v;\n' +
+        '  if (mode == 0 || mode == 2) {\n' +   // sharp-bilinear: nearest at whole multiples, bilinear for the rest
+        '    vec2 scale = max(floor(os / ts), vec2(1.0));\n' +
+        '    vec2 s = fract(texel);\n' +
+        '    vec2 range = 0.5 - 0.5 / scale;\n' +
+        '    vec2 d = s - 0.5;\n' +
+        '    vec2 f = (d - clamp(d, -range, range)) * scale + 0.5;\n' +
+        '    uv = (floor(texel) + f) / ts;\n' +
+        '  }\n' +
+        '  vec4 c = texture2D(t, uv);\n' +
+        '  if (mode == 2 && fract(texel.y) > 0.667) c.rgb *= 0.62;\n' +   // crt: the lower third of every row darker
+        '  gl_FragColor = c;\n' +
+        '}'));
+      gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { log('[present] link: ' + gl.getProgramInfoLog(prog)); return false; }
+      gl.useProgram(prog);
+      var buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+      var p = gl.getAttribLocation(prog, 'p');
+      gl.enableVertexAttribArray(p);
+      gl.vertexAttribPointer(p, 2, gl.FLOAT, false, 0, 0);
+      uTs = gl.getUniformLocation(prog, 'ts'); uOs = gl.getUniformLocation(prog, 'os'); uMode = gl.getUniformLocation(prog, 'mode');
+      tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 2);
+      return true;
+    }
+    RA2.ra2Present = function (ptr, w, h, dx, dy, dw, dh, mode, cw, ch) {
+      if (!gl && !init()) { RA2.ra2Present = function () {}; return; }
+      if (screen.width !== cw || screen.height !== ch) { screen.width = cw; screen.height = ch; }
+      var px = HEAPU16.subarray(ptr >> 1, (ptr >> 1) + w * h);
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      if (w !== texW || h !== texH) {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, w, h, 0, gl.RGB, gl.UNSIGNED_SHORT_5_6_5, px);
+        texW = w; texH = h;
+      } else {
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGB, gl.UNSIGNED_SHORT_5_6_5, px);
+      }
+      var nearest = mode === 3 || mode === 4;
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, nearest ? gl.NEAREST : gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, nearest ? gl.NEAREST : gl.LINEAR);
+      gl.viewport(0, 0, cw, ch);
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.viewport(dx, ch - dy - dh, dw, dh);
+      gl.uniform2f(uTs, w, h); gl.uniform2f(uOs, dw, dh); gl.uniform1i(uMode, mode);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      if (!started) { started = true; document.getElementById('start').classList.add('hidden'); setStatus(''); }
+    };
+    RA2.ra2Menu = function (open) { screen.style.visibility = open ? 'hidden' : 'visible'; };
+    /* The host's popup menu (F10): the items as JSON from the game's thread;
+       the choice goes back as an int at choicePtr (-1: closed). */
+    var mouse = { x: 200, y: 200 };
+    window.addEventListener('mousemove', function (e) { mouse.x = e.clientX; mouse.y = e.clientY; }, true);
+    RA2.ra2PopupMenu = function (json, choicePtr) {
+      var items = JSON.parse(json), open = [], sel = [];
+      function done(id) {
+        open.forEach(function (el) { el.remove(); });
+        open = [];
+        window.removeEventListener('keydown', onKey, true);
+        window.removeEventListener('mousedown', onDown, true);
+        new Int32Array(wasmMemory.buffer, choicePtr, 1)[0] = id;
+      }
+      function show(list, level, x, y) {
+        while (open.length > level) { open.pop().remove(); sel.pop(); }
+        var el = document.createElement('div');
+        el.className = 'popup';
+        list.forEach(function (it, i) {
+          if (!it) { el.appendChild(document.createElement('hr')); return; }
+          var row = document.createElement('div');
+          row.appendChild(document.createElement('span')).textContent = it.label;
+          row.appendChild(document.createElement('span')).textContent = it.hint || '';
+          if (it.checked) row.classList.add('check');
+          if (it.sub) row.classList.add('more');
+          if (!it.sub && !it.id) row.classList.add('gray');
+          row.onmouseenter = function () { select(level, i); };
+          row.onclick = function (e) { e.stopPropagation(); choose(level, i); };
+          el.appendChild(row);
+        });
+        document.body.appendChild(el);
+        var w = el.offsetWidth, h = el.offsetHeight;
+        el.style.left = Math.max(0, Math.min(x, window.innerWidth - w)) + 'px';
+        el.style.top = Math.max(0, Math.min(y, window.innerHeight - h)) + 'px';
+        open.push(el); sel.push(-1);
+      }
+      function rows(level) { return Array.prototype.filter.call(open[level].children, function (c) { return c.tagName === 'DIV'; }); }
+      function listAt(level) { var l = items; for (var k = 0; k < level; k++) l = l.filter(Boolean)[sel[k]].sub; return l.filter(Boolean); }
+      function select(level, i) {
+        var r = rows(level);
+        if (sel[level] >= 0 && r[sel[level]]) r[sel[level]].classList.remove('sel');
+        sel[level] = i;
+        if (i >= 0 && r[i]) r[i].classList.add('sel');
+        while (open.length > level + 1) { open.pop().remove(); sel.pop(); }
+        var it = i >= 0 ? listAt(level)[i] : null;
+        if (it && it.sub) { var b = r[i].getBoundingClientRect(); show(it.sub, level + 1, b.right - 2, b.top - 4); }
+      }
+      function choose(level, i) {
+        var it = listAt(level)[i];
+        if (!it) return;
+        if (it.sub) { select(level, i); return; }
+        if (it.id) done(it.id);
+      }
+      function onKey(e) {
+        e.preventDefault(); e.stopPropagation();
+        var level = open.length - 1, r = rows(level), n = r.length, i = sel[level];
+        if (e.key === 'Escape' || e.key === 'F10') { if (level > 0) { open.pop().remove(); sel.pop(); } else done(-1); }
+        else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          var step = e.key === 'ArrowDown' ? 1 : -1, j = i;
+          for (var t = 0; t < n; t++) { j = (j + step + n) % n; if (!r[j].classList.contains('gray')) break; }
+          var it = listAt(level)[j];
+          if (sel[level] >= 0) r[sel[level]].classList.remove('sel');
+          sel[level] = j; r[j].classList.add('sel');
+        }
+        else if (e.key === 'ArrowLeft' && level > 0) { open.pop().remove(); sel.pop(); }
+        else if (e.key === 'ArrowRight' && i >= 0 && listAt(level)[i].sub) select(level, i);
+        else if ((e.key === 'Enter' || e.key === ' ') && i >= 0) choose(level, i);
+      }
+      function onDown(e) { if (!open.some(function (el) { return el.contains(e.target); })) { e.preventDefault(); e.stopPropagation(); done(-1); } }
+      show(items, 0, mouse.x, mouse.y);
+      window.addEventListener('keydown', onKey, true);
+      window.addEventListener('mousedown', onDown, true);
+    };
+    RA2.ra2Fullscreen = function (on) {
+      if (on) { if (stage.requestFullscreen) stage.requestFullscreen(); }
+      else if (document.fullscreenElement) document.exitFullscreen();
+    };
+  })();
+  /* The start screen: the games on this site (yr.js, ra2.js) and those the
+     imported folder holds (gamemd.exe, game.exe), a button for each of the
+     first, lit when the second is there too; else the import. */
+  (function () {
+    var imp = document.getElementById('import'), txt = document.getElementById('import-text');
+    var prog = document.getElementById('import-progress'), manage = document.getElementById('manage');
+    var SITE = { yr: null, ra2: null };
+    async function onSite(name) {
+      if (SITE[name] === null) { try { SITE[name] = (await fetch(name + '.js', { method: 'HEAD' })).ok; } catch (e) { SITE[name] = false; } }
+      return SITE[name];
+    }
+    async function refresh() {
+      var exes = await RA2Import.exes();
+      var have = exes.length > 0, any = false;
+      for (var name of ['yr', 'ra2']) {
+        var btn = document.getElementById('play-' + name), site = await onSite(name);
+        btn.classList.toggle('hidden', !site);
+        var ok = exes.indexOf(name === 'yr' ? 'gamemd.exe' : 'game.exe') >= 0;
+        btn.disabled = !ok;
+        btn.title = ok ? '' : 'the imported folder has no ' + (name === 'yr' ? 'gamemd.exe' : 'game.exe');
+        any = any || site;
+      }
+      document.getElementById('games').classList.toggle('hidden', !(have && any));
+      document.getElementById('start-text').classList.toggle('hidden', !have);
+      imp.classList.toggle('hidden', have);
+      manage.classList.toggle('hidden', !have);
+      if (!any) setStatus('No game build on this site (yr.js or ra2.js).');
+    }
+    function progress(done, total, name) {
+      prog.classList.remove('hidden');
+      prog.value = total ? Math.round(done / total * 1000) : 0;
+      txt.textContent = name ? 'Copying ' + name + '  (' + Math.round(done / 1e6) + ' of ' + Math.round(total / 1e6) + ' MB)' : 'Done.';
+    }
+    async function run(listing) {
+      var movies = document.getElementById('movies').checked;
+      txt.textContent = 'Reading the folder...';
+      try {
+        var entries = await listing();
+        var r = await RA2Import.copy(entries, movies, progress);
+        txt.textContent = 'Imported ' + r.files + ' files, ' + Math.round(r.bytes / 1e6) + ' MB.';
+        await refresh();
+      } catch (e) {
+        prog.classList.add('hidden');
+        txt.textContent = 'Not imported: ' + e.message;
+      }
+    }
+    document.getElementById('pick').onclick = function () {
+      if (RA2Import.canPick) {
+        window.showDirectoryPicker({ mode: 'read' }).then(function (h) { run(function () { return RA2Import.listHandle(h); }); }).catch(function (e) { if (e.name !== 'AbortError') txt.textContent = e.message; });
+      } else document.getElementById('pick-input').click();
+    };
+    document.getElementById('pick-input').onchange = function (e) { var files = e.target.files; if (files.length) run(function () { return RA2Import.listFiles(files); }); };
+    document.getElementById('forget').onclick = function (e) { e.preventDefault(); RA2Import.remove().then(refresh); };
+    if (!window.crossOriginIsolated) setStatus('Waiting for cross-origin isolation (the service worker)...', true);
+    refresh();
+  })();
+  function start(name) {
+    document.getElementById('games').classList.add('hidden');
+    document.getElementById('start-text').classList.add('hidden');
+    document.getElementById('manage').classList.add('hidden');
+    document.title = name === 'yr' ? "Yuri's Revenge (recomp)" : 'Red Alert 2 (recomp)';
+    RA2.canvas.focus();
+    setStatus('Loading', true);
+    var m = document.createElement('script');
+    m.src = 'movies.js';
+    document.body.appendChild(m);
+    var s = document.createElement('script');
+    s.src = name + '.js';
+    document.body.appendChild(s);
+  }
+  document.getElementById('play-yr').onclick = function () { start('yr'); };
+  document.getElementById('play-ra2').onclick = function () { start('ra2'); };
+</script>
+</body>
+</html>

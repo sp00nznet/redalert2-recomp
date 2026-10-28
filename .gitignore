@@ -81,3 +81,14 @@ lan-frames/
 mods/yr/
 mods/ra2/
 mods-test/
+
+# the web build (build-web.sh), its packaged site, and what tools/web_deps.sh fetches
+build-web/
+build-web-game/
+dist-web/
+web/fonts/*.ttf
+web/ffmpeg/ffmpeg-core.js
+web/ffmpeg/ffmpeg-core.wasm
+web/ffmpeg/ffmpeg-core.worker.js
+src/recomp/gen
+src/recomp/gen_game

@@ -51,6 +51,7 @@ static void ini_set(const char *path, const char *sec, const char *key, const ch
         fclose(f);
     }
     FILE *o = fopen(path, "wb");
+    hle_path_changed();
     if (!o) { free(in); fprintf(stderr, "[menu] cannot write %s\n", path); return; }
     size_t kl = strlen(key), sl = strlen(sec);
     int in_sec = 0, done = 0;

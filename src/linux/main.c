@@ -32,6 +32,10 @@
 #include "pe_loader.h"
 #include "host.h"
 #include "recomp_target.h"
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#include "web.h"
+#endif
 
 extern const uint32_t ra2_entry_va;   /* recomp_dispatch.c */
 
@@ -159,6 +163,55 @@ static void on_fault(int sig, siginfo_t *si, void *uc) {
     _exit(3);
 }
 
+#ifdef __EMSCRIPTEN__
+/* --sample: where the game is, every 5 s (a browser has no debugger to stop in) */
+static void *sampler(void *arg) {
+    (void)arg;
+    for (;;) {
+        sleep(5);
+        fprintf(stderr, "[sample] in sub_%08X, last import %s, %u indirect calls, esp %08X\n", g_cur_func,
+                g_cur_import ? g_cur_import : "(none)", g_icall_count, g_esp);
+        { extern volatile unsigned hle_mmt_fired, hle_mmt_started; int hle_debug_waiters(void);
+          extern volatile unsigned hle_dbg_yields, hle_dbg_handed, hle_dbg_timeouts, hle_dbg_takes;
+          fprintf(stderr, "[sample] timers started %u, fired %u, lock waiters %d; yields %u handed %u timeouts %u takes %u\n", hle_mmt_started, hle_mmt_fired, hle_debug_waiters(),
+                  hle_dbg_yields, hle_dbg_handed, hle_dbg_timeouts, hle_dbg_takes); }
+        fprintf(stderr, "[sample] last indirect calls (newest first):");
+        for (int i = 1; i <= 24 && i <= (int)g_icall_trace_idx; i++) {
+            uint32_t k = (g_icall_trace_idx - i) & (ICALL_TRACE_SIZE - 1);
+            const char *nm = hle_name(g_icall_trace[k]);
+            fprintf(stderr, " %08X<-%08X%s%s", g_icall_trace[k], g_icall_from[k], nm ? ":" : "", nm ? nm : "");
+        }
+        fprintf(stderr, "\n");
+        fprintf(stderr, "[sample] stack:");
+        for (int k = 0; k < 256; k++) {                 /* code addresses on the stack: the callers, roughly */
+            uint32_t w = MEM32(g_esp + 4 * k);
+            if (w >= 0x00401000u && w < 0x00B00000u) fprintf(stderr, " %08X", w);
+        }
+        fprintf(stderr, "\n");
+    }
+    return NULL;
+}
+#endif
+/* --readcheck NAME: the file read through the host's own path, its size and
+ * a hash, to compare with what the page reads of it (a storage backend's
+ * reads checked) */
+static const char *g_readcheck;
+static void readcheck(const char *dir) {
+    char path[1024];
+    snprintf(path, sizeof path, "%s/%s", dir, g_readcheck);
+    FILE *f = fopen(path, "rb");
+    if (!f) { fprintf(stderr, "[readcheck] cannot open %s\n", path); return; }
+    static uint8_t buf[65536];
+    uint32_t h = 0x811c9dc5u;
+    size_t n, total = 0, reads = 0;
+    uint32_t t0 = hle_ticks_ms();
+    while ((n = fread(buf, 1, sizeof buf, f)) > 0) {
+        for (size_t i = 0; i < n; i++) { h ^= buf[i]; h *= 0x01000193u; }
+        total += n, reads++;
+    }
+    fclose(f);
+    fprintf(stderr, "[readcheck] %s: %zu bytes in %zu reads, %u ms, fnv %08x\n", path, total, reads, hle_ticks_ms() - t0, h);
+}
 static void *watchdog(void *arg) {
     (void)arg;
     sleep(g_watchdog_s);
@@ -258,7 +311,11 @@ static void *recorder(void *unused) {
             rec_w = (w / k) & ~1, rec_h = (h / k) & ~1;
             snprintf(cmd, sizeof cmd, "ffmpeg -y -loglevel error -f rawvideo -pix_fmt bgr0 -s %dx%d -r 30 -i - "
                      "-c:v libx264 -pix_fmt yuv420p '%s'", rec_w, rec_h, g_record);
+#ifdef __EMSCRIPTEN__
+            g_ffmpeg = NULL; (void)cmd;
+#else
             g_ffmpeg = popen(cmd, "w");
+#endif
             fprintf(stderr, "[record] %dx%d -> %s\n", rec_w, rec_h, g_record);
             if (!g_ffmpeg) { pthread_mutex_unlock(&g_rec_lock); return NULL; }
         }
@@ -460,6 +517,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--mod") && i + 1 < argc) g_mod = argv[++i];
         else if (!strcmp(argv[i], "--watchdog") && i + 1 < argc) g_watchdog_s = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--trace")) win32hle_trace = 1;
+        else if (!strcmp(argv[i], "--filetrace")) { extern int hle_filetrace_on; hle_filetrace_on = 1; }
+        else if (!strcmp(argv[i], "--inputtrace")) { extern int g_input_trace; g_input_trace = 1; }
+        else if (!strcmp(argv[i], "--readcheck") && i + 1 < argc) g_readcheck = argv[++i];
+#ifdef __EMSCRIPTEN__
+        else if (!strcmp(argv[i], "--sample")) { pthread_t t; pthread_create(&t, NULL, sampler, NULL); pthread_detach(t); }
+#endif
         else if (!strcmp(argv[i], "--record") && i + 1 < argc) {
             static char path[PATH_MAX];                  /* absolute: the run chdirs into the game folder */
             const char *p = argv[++i];
@@ -491,8 +554,20 @@ int main(int argc, char **argv) {
         }
     }
     char game_full[PATH_MAX], exe_host[PATH_MAX + 16];
+#ifdef __EMSCRIPTEN__
+    /* the game folder: the one imported into the browser, else the server's;
+     * what the game writes goes beside it in the browser (web.c) */
+    static char web_game[64], web_save[64];
+    if (!web_mount(RA2_EXE_NAME, web_game, sizeof web_game, web_save, sizeof web_save)) return 1;
+    game = web_game;
+#endif
     if (!realpath(game, game_full)) { fprintf(stderr, "no game folder at %s\n", game); return 1; }
     hle_set_drive('C', game_full);
+    if (g_readcheck) readcheck(game_full);
+#ifdef __EMSCRIPTEN__
+    fprintf(stderr, "[web] game folder %s, saves in %s\n", game_full, web_save);
+    hle_set_overlay(game_full, web_save);
+#endif
     if (!hle_host_path("C:\\" RA2_EXE_NAME, exe_host, sizeof exe_host)) {
         fprintf(stderr, "no " RA2_EXE_NAME " in %s\n", game_full);
         return 1;
@@ -504,6 +579,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+#ifndef __EMSCRIPTEN__
     signal(SIGPIPE, SIG_IGN);           /* a recorder whose ffmpeg went away gets an error, not a signal */
     {   /* faults report on their own stack: a guest stack overflow is one */
         static uint8_t alt[1 << 16];
@@ -518,11 +594,14 @@ int main(int argc, char **argv) {
         sigaction(SIGFPE, &sa, NULL);
         sigaction(SIGILL, &sa, NULL);
     }
+#endif
 
     win32hle_register(g_ra2_shims);    /* first: the game's own answers win */
     recomp_host_init();
     hle_com_register_class(CLSID_Blowfish, ra2_blowfish_create);
-#ifdef __APPLE__
+#if defined(__EMSCRIPTEN__)
+    printf(RA2_TITLE " recomp host (WebAssembly)\n  lifted functions in dispatch: %u\n", recomp_dispatch_count);
+#elif defined(__APPLE__)
     printf(RA2_TITLE " recomp host (native macOS)\n  lifted functions in dispatch: %u\n", recomp_dispatch_count);
 #else
     printf(RA2_TITLE " recomp host (native Linux)\n  lifted functions in dispatch: %u\n", recomp_dispatch_count);
@@ -564,7 +643,9 @@ int main(int argc, char **argv) {
         if (!g_headless) {
             if (!ra2_vox_hd_on) ra2_vox_hd_show = g_saved_hd > 0;
             if (g_saved_hd >= 2) ra2_vox_set_scale(g_saved_hd);   /* the scale ra2.ini remembered */
-            ra2_vox_hd_on = 1;
+#ifndef __EMSCRIPTEN__
+            ra2_vox_hd_on = 1;                                     /* the web presenter shows the 1x picture */
+#endif
             menu_start(settings_save_now);
         }
     }

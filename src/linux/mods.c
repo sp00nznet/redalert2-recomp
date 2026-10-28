@@ -96,7 +96,11 @@ static void restart_with(const char *name) {
     fflush(NULL);
     if (g_start_dir[0] && chdir(g_start_dir) != 0) fprintf(stderr, "[mods] cannot go back to %s\n", g_start_dir);
     char exe[PATH_MAX];
+#ifdef __EMSCRIPTEN__
+    fprintf(stderr, "[mods] a mod switch restarts the program, which a browser cannot: reload the page\n");
+#else
     if (hle_exe_path(exe, sizeof exe)) execv(exe, argv);
+#endif
     fprintf(stderr, "[mods] could not restart: %s\n", strerror(errno));
 }
 

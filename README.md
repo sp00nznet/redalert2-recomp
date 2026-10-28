@@ -39,6 +39,9 @@ reimplements the rules: this runs Westwood's own code, recompiled.
 - **LAN multiplayer**, RA2 against RA2, as shipped (IPXEmu).
 - **Windows, Linux and macOS**, natively on all three: no Wine, and no
   Visual C++ redistributable to install. It also runs under Wine and CrossOver.
+- **In a browser**: the same game compiled to WebAssembly, hosted anywhere
+  as static files; each player imports their own copy of the game into
+  their browser ([docs/web.md](docs/web.md)).
 
 `--classic` gives the original display, and `--original` runs the shipping
 machine code for comparison.
