@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Red Alert 2 (recomp)
+GenericName=Real-time strategy game
+Comment=Static recompilation of Red Alert 2 (needs your own copy of the game)
+Exec=redalert2-recomp-play ra2
+Icon=redalert2-recomp
+Terminal=false
+Categories=Game;StrategyGame;
+Keywords=ra2;red;alert;recomp;command;conquer;
+StartupNotify=false

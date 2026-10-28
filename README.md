@@ -76,6 +76,27 @@ lifts and builds both games; a rerun skips finished steps. Building by hand,
 each platform's details, Wine and the command line are in
 **[docs/building.md](docs/building.md)**.
 
+### Linux packages and one-line install
+
+On Linux you can skip the ZIP: the build still runs on your machine,
+because it needs your own copy of the game (nothing from the game is
+redistributed).
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sp00nznet/redalert2-recomp/main/packaging/install.sh | bash
+```
+
+It installs the toolchain (enabling `multilib` on Arch, `i386` on
+Debian/Ubuntu where needed), clones to `~/.local/share/redalert2-recomp`,
+adds menu entries, then runs the setup. On Arch there is also an AUR
+package: `yay -S redalert2-recomp-git` ([AUR](https://aur.archlinux.org/packages/redalert2-recomp-git)),
+then run `redalert2-recomp-setup` afterwards.
+
+After the build, play with `redalert2-recomp-play yr` / `ra2`, or the
+`Yuri's Revenge (recomp)` / `Red Alert 2 (recomp)` menu entries. Packaging
+details (payloads, versions, publishing) are in
+**[packaging/README.md](packaging/README.md)**.
+
 In the game: F10 settings, F11 fullscreen, F12 scaling, F9 mods at the main
 menu (Linux and macOS). On a Mac hold fn for the F keys, and use Option+Return
 for fullscreen.

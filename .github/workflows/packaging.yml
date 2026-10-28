@@ -1,0 +1,30 @@
+# Linux packaging: the wrappers install cleanly.
+name: packaging
+
+on:
+  push:
+    branches: [main]
+    paths: ["packaging/**", ".github/workflows/packaging.yml"]
+  pull_request:
+    paths: ["packaging/**", ".github/workflows/packaging.yml"]
+  workflow_dispatch:
+
+jobs:
+  packaging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax-check every shell file
+        run: |
+          set -e
+          for f in packaging/install.sh \
+                   packaging/aur/PKGBUILD; do
+            bash -n "$f" && echo "ok: $f"
+          done
+      - name: Desktop files validate
+        run: |
+          for d in packaging/common/*.desktop; do
+            grep -q '^Exec=redalert2-recomp-play' "$d" || exit 1
+            grep -q '^Icon=redalert2-recomp$' "$d" || exit 1
+            echo "ok: $d"
+          done
