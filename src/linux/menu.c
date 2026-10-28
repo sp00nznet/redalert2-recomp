@@ -83,7 +83,7 @@ static void set_game_resolution(int w, int h) {
     snprintf(v, sizeof v, "%d", h), ini_set(path, "Video", "ScreenHeight", v, 0);
     if (res_plausible((int)MEM32(RA2_OPT_W_VA), (int)MEM32(RA2_OPT_H_VA)))
         MEM32(RA2_OPT_W_VA) = (uint32_t)w, MEM32(RA2_OPT_H_VA) = (uint32_t)h;
-    fprintf(stderr, "[menu] game resolution %dx%d (the next game opens at it)\n", w, h);
+    fprintf(stderr, "[menu] game resolution %dx%d (the next battle opens at it)\n", w, h);
 }
 
 static void switch_mod(const char *name) {
@@ -152,7 +152,7 @@ static void open_menu(void) {
     g_main[n++] = (hle_menu_item_t){ "Fullscreen", "F11", ID_FULL, full, NULL, 0 };
     g_main[n++] = (hle_menu_item_t){ "HD vehicles (voxels)", NULL, 0, 0, g_hd, 4 };
     g_main[n++] = (hle_menu_item_t){ NULL, NULL, 0, 0, NULL, 0 };
-    g_main[n++] = (hle_menu_item_t){ "Game resolution (next game)", NULL, 0, 0, g_res, nr };
+    g_main[n++] = (hle_menu_item_t){ "Game resolution (next battle)", NULL, 0, 0, g_res, nr };
     g_main[n++] = (hle_menu_item_t){ "Mod (restarts the game)", NULL, 0, 0, g_mods, nm };
     hle_screen_menu(g_main, n, chosen);
 }

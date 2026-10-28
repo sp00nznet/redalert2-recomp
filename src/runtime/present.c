@@ -76,11 +76,14 @@ static const char k_hlsl[] =
 "                                                  : float3(0.87, 0.87, 1.25);\n"
 "  return col * beam * lerp(float3(1, 1, 1), mask, k);\n"
 "}\n"
-"float3 blur(float2 uv) {\n"                         /* the bars: a soft, dark copy of the picture */
-"  float3 c = 0; float r = 0.035;\n"
-"  [unroll] for (int y = -2; y <= 2; y++) [unroll] for (int x = -2; x <= 2; x++)\n"
-"    c += t0.SampleLevel(s_lin, uv + float2(x, y) * r, 0).rgb;\n"
-"  return c / 25.0 * 0.32;\n"
+"float3 blur(float2 uv) {\n"   /* the bars: a soft, dark copy of the picture, from its ~32-wide mip (#38) */
+"  float l = log2(max(src.x / 32.0, 1.0));\n"
+"  float2 t = exp2(l) / src;\n"                       /* one texel of that mip */
+"  float3 c = t0.SampleLevel(s_lin, uv + float2(-0.5, -0.5) * t, l).rgb\n"   /* 4 bilinear taps: a 3x3 tent; */
+"           + t0.SampleLevel(s_lin, uv + float2( 0.5, -0.5) * t, l).rgb\n"   /* no loop, Wine's compiler */
+"           + t0.SampleLevel(s_lin, uv + float2(-0.5,  0.5) * t, l).rgb\n"   /* won't unroll one */
+"           + t0.SampleLevel(s_lin, uv + float2( 0.5,  0.5) * t, l).rgb;\n"
+"  return c * 0.25 * 0.35;\n"
 "}\n"
 "float4 ps(V i) : SV_Target {\n"
 "  float3 c;\n"
@@ -104,7 +107,8 @@ static struct {
     ID3D11SamplerState* samp[2];
     ID3D11Buffer* cb;
     ID3D11Texture2D* tex;
-    ID3D11ShaderResourceView* srv;
+    ID3D11ShaderResourceView* srv;      /* the picture, full size only */
+    ID3D11ShaderResourceView* srv_mips; /* all its mips, for the bars' blur */
     int tw, th;                 /* texture size */
     int cw, ch;                 /* swap chain size */
     ID3D11BlendState* blend;    /* alpha blend for the HD overlay */
@@ -236,13 +240,22 @@ static void draw(const uint32_t* frame, int gw, int gh,
     int cw = cr.right > 0 ? cr.right : 1, ch = cr.bottom > 0 ? cr.bottom : 1;
     if (!d.tex || d.tw != gw || d.th != gh) {
         if (d.srv) ID3D11ShaderResourceView_Release(d.srv);
+        if (d.srv_mips) ID3D11ShaderResourceView_Release(d.srv_mips);
         if (d.tex) ID3D11Texture2D_Release(d.tex);
+        /* A full mip chain, so the bars can blur from a tiny copy (#38). BGRA,
+         * not BGRX: mip generation needs a render-target format. */
         D3D11_TEXTURE2D_DESC td = {0};
-        td.Width = gw; td.Height = gh; td.MipLevels = 1; td.ArraySize = 1;
-        td.Format = DXGI_FORMAT_B8G8R8X8_UNORM; td.SampleDesc.Count = 1;
-        td.Usage = D3D11_USAGE_DEFAULT; td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        td.Width = gw; td.Height = gh; td.MipLevels = 0; td.ArraySize = 1;
+        td.Format = DXGI_FORMAT_B8G8R8A8_UNORM; td.SampleDesc.Count = 1;
+        td.Usage = D3D11_USAGE_DEFAULT;
+        td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+        td.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
         ID3D11Device_CreateTexture2D(d.dev, &td, NULL, &d.tex);
-        ID3D11Device_CreateShaderResourceView(d.dev, (ID3D11Resource*)d.tex, NULL, &d.srv);
+        D3D11_SHADER_RESOURCE_VIEW_DESC sv = {0};
+        sv.Format = td.Format; sv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+        sv.Texture2D.MipLevels = 1;                     /* the picture itself samples mip 0 only */
+        ID3D11Device_CreateShaderResourceView(d.dev, (ID3D11Resource*)d.tex, &sv, &d.srv);
+        ID3D11Device_CreateShaderResourceView(d.dev, (ID3D11Resource*)d.tex, NULL, &d.srv_mips);
         d.tw = gw, d.th = gh;
         fprintf(stderr, "[present] picture %dx%d\n", gw, gh);
     }
@@ -281,7 +294,10 @@ static void draw(const uint32_t* frame, int gw, int gh,
         D3D11_VIEWPORT full = { 0, 0, (float)cw, (float)ch, 0, 1 };
         ID3D11DeviceContext_UpdateSubresource(d.ctx, (ID3D11Resource*)d.cb, 0, NULL, &cb, 0, 0);
         ID3D11DeviceContext_RSSetViewports(d.ctx, 1, &full);
+        ID3D11DeviceContext_GenerateMips(d.ctx, d.srv_mips);
+        ID3D11DeviceContext_PSSetShaderResources(d.ctx, 0, 1, &d.srv_mips);
         ID3D11DeviceContext_Draw(d.ctx, 3, 0);
+        ID3D11DeviceContext_PSSetShaderResources(d.ctx, 0, 1, &d.srv);
         ID3D11DeviceContext_UpdateSubresource(d.ctx, (ID3D11Resource*)d.cb, 0, NULL, &c, 0, 0);
     }
     D3D11_VIEWPORT vp = { (float)r.left, (float)r.top, (float)(r.right - r.left), (float)(r.bottom - r.top), 0, 1 };
@@ -584,7 +600,7 @@ static void set_game_resolution(int w, int h) {
     _snprintf(v, sizeof v - 1, "%d", h), v[sizeof v - 1] = 0;
     WritePrivateProfileStringA("Video", "ScreenHeight", v, path);
     if (opt_ok()) *OPT_W = w, *OPT_H = h;
-    fprintf(stderr, "[present] game resolution %dx%d (the next game opens at it)\n", w, h);
+    fprintf(stderr, "[present] game resolution %dx%d (the next battle opens at it)\n", w, h);
 }
 
 enum { ID_SCALE = 100, ID_BARS = 200, ID_FULL = 300, ID_RES = 400, ID_HDVOX = 500,
@@ -627,7 +643,7 @@ static void settings_menu(HWND hw) {             /* at the mouse */
                 ID_CONTROLS + 1, "Modern");
     AppendMenuA(m, MF_POPUP, (UINT_PTR)controls, "Controls");
     AppendMenuA(m, MF_SEPARATOR, 0, NULL);
-    AppendMenuA(m, MF_POPUP, (UINT_PTR)res, "Game resolution (next game)");
+    AppendMenuA(m, MF_POPUP, (UINT_PTR)res, "Game resolution (next battle)");
     /* the mods in mods\<game>: choosing one restarts the game with it (mods.c) */
     AppendMenuA(mods, MF_STRING | (!mods_active()[0] ? MF_CHECKED : 0), ID_MOD, "None (the game as it shipped)");
     for (int i = 0; i < nmods; i++)

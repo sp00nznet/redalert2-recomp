@@ -20,6 +20,16 @@ versions follow [SemVer](https://semver.org/).
   minimum, so an app packaged with them runs nowhere older; built against
   these, it runs on any Apple Silicon Mac.
 
+### Changed
+- The F10 resolution option now reads "(next battle)": it takes effect
+  when the next skirmish or mission starts (#30, #34).
+
+### Fixed
+- Windows: the blurred bars beside a 4:3 picture showed sharp, repeated
+  copies of it instead of a blur. They now blur from a small copy of the
+  picture, as on Linux and macOS, and the shader no longer needs a loop that
+  Wine's HLSL compiler can't unroll (#38).
+
 ## [0.1.3] - 2026-10-26
 
 ### Fixed

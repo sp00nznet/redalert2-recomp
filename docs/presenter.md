@@ -50,7 +50,8 @@ A `--scale` or `--fullscreen` on the command line wins over the file.
   sides. `blur` (the default) fills them with a soft, darkened copy of the
   picture stretched over the whole window, so the menus sit in a frame rather
   than a hole; `black` is plain letterboxing. The shader draws the fill first
-  (`mode 5`, a 5x5 box of wide taps) and the picture on top.
+  (`mode 5`, a 3x3 box over the picture's ~32-pixel-wide mip, which the
+  presenter regenerates each frame) and the picture on top.
 - **HD vehicles** (on unless turned off) draws voxel units at twice the
   resolution of the rest of the picture ([voxels.md](voxels.md)); the
   presenter's picture is then the game's at 2x, up to a game resolution of
@@ -58,7 +59,7 @@ A `--scale` or `--fullscreen` on the command line wins over the file.
   the units at 2x and averages each 2x2 block back down, antialiasing them at
   the game's own size (`hdvox_aa=1` in `ra2.ini`) -- it costs the same as 2x
   but keeps units vanilla-sized.
-- **Game resolution** applies to the next game (skirmish or mission); the
+- **Game resolution** applies to the next battle (skirmish or mission); the
   menus are always 800x600. It is written to the game's `RA2MD.INI`
   `[Video] ScreenWidth/ScreenHeight`, and to the game's options in memory
   (`0x00A8EB60` +0x24/+0x28, the object the settings reader is called on at
