@@ -28,6 +28,7 @@
 #include "hdvox.h"
 #include "mods.h"
 #include "recomp_target.h"   /* the binary this build runs: run_lift.py --target */
+#include "resolutions.h"     /* the virtual display's modes (hl_EnumDisplayModes) */
 
 extern const uint32_t ra2_entry_va;    /* recomp_dispatch.c */
 
@@ -613,6 +614,40 @@ static void patch(void** vt, int slot, void* fn, void** real) {
     VirtualProtect(&vt[slot], 4, old, &old);
 }
 
+/* The game's Options screen lists the 16-bit modes DirectDraw enumerates.
+ * Windows 10 and 11 enumerate none at 16 bits on many displays, so the list
+ * was empty, and picking from it faulted in the game (it indexes its mode
+ * table with the combo box's -1). The display is virtual (SetDisplayMode is
+ * remembered, not applied), so the host lists the sizes F10 offers, 640x480
+ * first, as win32hle does on Linux and macOS. The game keeps its own filter:
+ * above 1024x768 only with [Video] AllowHiResModes=yes. */
+typedef HRESULT (WINAPI *dd_enum_t)(IDirectDraw*, DWORD, LPDDSURFACEDESC, LPVOID, LPDDENUMMODESCALLBACK);
+static dd_enum_t g_real_enum;           /* replaced, not called: the display is virtual */
+
+static HRESULT WINAPI hl_EnumDisplayModes(IDirectDraw* dd, DWORD flags, LPDDSURFACEDESC want, LPVOID ctx,
+                                          LPDDENUMMODESCALLBACK cb) {
+    (void)dd, (void)flags;
+    if (!cb) return DDERR_INVALIDPARAMS;
+    for (int i = -1; i < NRES; i++) {    /* 640x480, then F10's */
+        int w = i < 0 ? 640 : k_res[i][0], h = i < 0 ? 480 : k_res[i][1];
+        DDSURFACEDESC m = {0};
+        if (want && (want->dwFlags & DDSD_WIDTH) && want->dwWidth != (DWORD)w) continue;
+        if (want && (want->dwFlags & DDSD_HEIGHT) && want->dwHeight != (DWORD)h) continue;
+        if (want && (want->dwFlags & DDSD_PIXELFORMAT) && want->ddpfPixelFormat.dwRGBBitCount != 16) continue;
+        m.dwSize = sizeof m;
+        m.dwFlags = DDSD_WIDTH | DDSD_HEIGHT | DDSD_PITCH | DDSD_PIXELFORMAT | DDSD_REFRESHRATE;
+        m.dwWidth = w, m.dwHeight = h, m.lPitch = w * 2, m.dwRefreshRate = 60;
+        m.ddpfPixelFormat.dwSize = sizeof m.ddpfPixelFormat;
+        m.ddpfPixelFormat.dwFlags = DDPF_RGB;
+        m.ddpfPixelFormat.dwRGBBitCount = 16;
+        m.ddpfPixelFormat.dwRBitMask = 0xF800, m.ddpfPixelFormat.dwGBitMask = 0x07E0;
+        m.ddpfPixelFormat.dwBBitMask = 0x001F;
+        if (cb(&m, ctx) == DDENUMRET_CANCEL) break;
+    }
+    fprintf(stderr, "[headless] EnumDisplayModes: the virtual display's %d modes at 16 bits\n", NRES + 1);
+    return DD_OK;
+}
+
 static void shim_DirectDrawCreate(void) {
     GUID* guid = (GUID*)(uintptr_t)ARG(0);
     IDirectDraw** out = (IDirectDraw**)(uintptr_t)ARG(1);
@@ -621,6 +656,7 @@ static void shim_DirectDrawCreate(void) {
         void** vt = *(void***)*out;
         patch(vt, 2, (void*)hl_DDRelease, (void**)&g_real_ddrelease);
         patch(vt, 6, (void*)hl_CreateSurface, (void**)&g_real_surf);
+        patch(vt, 8, (void*)hl_EnumDisplayModes, (void**)&g_real_enum);
         patch(vt, 12, (void*)hl_GetDisplayMode, (void**)&g_real_getmode);
         patch(vt, 20, (void*)hl_SetCooperativeLevel, (void**)&g_real_coop);
         patch(vt, 21, (void*)hl_SetDisplayMode, (void**)&g_real_mode);
@@ -1125,13 +1161,29 @@ static int g_debuglog;
 /* --mute: this process's audio session at zero (Vista and later: waveOut's
  * volume is the session's, and DirectSound and Bink play in the same
  * session). Held every second, since the game opens its devices later. For
- * test runs on a machine someone is using. */
+ * test runs on a machine someone is using.
+ *
+ * Windows keeps that volume for the program (by its path) after it exits,
+ * and the Volume mixer doesn't show it: its slider is the session's master
+ * volume, this is the channels'. So after a test run the game played
+ * silently from the same ra2.exe: the session at 100 in the mixer, its
+ * meter moving, nothing reaching the speakers. A run without --mute puts the
+ * channels back at full, held for the first 10 s for the same reason. */
 static DWORD WINAPI mute_thread(LPVOID unused) {
     (void)unused;
     for (;;) {
         waveOutSetVolume(NULL, 0);
         Sleep(1000);
     }
+}
+
+static DWORD WINAPI unmute_thread(LPVOID unused) {
+    (void)unused;
+    for (int i = 0; i < 10; i++) {
+        waveOutSetVolume(NULL, 0xFFFFFFFFu);
+        Sleep(1000);
+    }
+    return 0;
 }
 
 void ra2_hook_debuglog(void) {
@@ -1278,6 +1330,7 @@ int main(int argc, char** argv) {
     const char* mod = NULL;             /* --mod: a mod in mods\<game> (mods.c) */
     char exe_full[MAX_PATH], game_full[MAX_PATH];
     int run = 0;
+    int muted = 0;                      /* --mute: mute_thread, else unmute_thread */
     /* stderr unbuffered: the log is the evidence, and the game leaves through
      * ExitProcess, which flushes nothing with the C runtime linked in (/MT):
      * a run that exited cleanly lost its last 4 KB, menus and all. */
@@ -1321,7 +1374,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--debuglog")) g_debuglog = 1;
         else if (!strcmp(argv[i], "--hd-scale") && i + 1 < argc) ra2_vox_set_scale(atoi(argv[++i]));
         else if (!strcmp(argv[i], "--hd-voxels")) hdvox_configure(1, NULL);
-        else if (!strcmp(argv[i], "--mute")) CloseHandle(CreateThread(NULL, 0, mute_thread, NULL, 0, NULL));
+        else if (!strcmp(argv[i], "--mute")) muted = 1;
         else if (!strcmp(argv[i], "--hd-voxels-dump") && i + 1 < argc) {
             static char dir[MAX_PATH];
             GetFullPathNameA(argv[++i], MAX_PATH, dir, NULL);   /* the run chdirs into game/ */
@@ -1348,6 +1401,7 @@ int main(int argc, char** argv) {
             return argv[i][1] == 'h' || argv[i][2] == 'h' ? 0 : 1;
         }
     }
+    CloseHandle(CreateThread(NULL, 0, muted ? mute_thread : unmute_thread, NULL, 0, NULL));
     if (g_record && g_classic) { fprintf(stderr, "--record needs the virtual display (not --classic)\n"); return 1; }
     GetFullPathNameA(exe, MAX_PATH, exe_full, NULL);
     GetFullPathNameA(game, MAX_PATH, game_full, NULL);
