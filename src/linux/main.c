@@ -109,6 +109,10 @@ void ra2_modern_shift_box_decide(void) {}
 void ra2_modern_shift_box_end(void) {}
 int ra2_modern_box_object(int selected) { (void)selected; return 1; }
 
+/* UI scale (src/runtime/present.c) is the Windows presenter's too: this host
+ * has no picture to compose it into, so the sidebar keeps its full height. */
+int32_t ra2_ui_sidebar_h(int32_t h) { return h; }
+
 /* ---- game-specific answers ------------------------------------------------ */
 
 /* Message boxes print; headless, a question is answered No. */
