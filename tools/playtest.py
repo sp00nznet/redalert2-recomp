@@ -402,6 +402,14 @@ for w, h in RES:
 case('res-campaign-1920x1080', SP().press(SINGLE, 'NewCampaign', CAMPAIGN).press(CAMPAIGN, 1770)
      .waitlog(INGAME).move(880, 540, after=2).key('0x48', after=10), 300, ingame=True, alive=True,
      size=(1920, 1080), ini={'Video': {'ScreenWidth': 1920, 'ScreenHeight': 1080}})
+# A view larger than the map (issue #27): the Allied first mission at 3440x1440,
+# scrolled with the arrow keys. The view jumped and left the base drawn twice.
+s = (SP().press(SINGLE, 'NewCampaign', CAMPAIGN).press(CAMPAIGN, 1770)
+     .waitlog(INGAME).move(1640, 720, after=2).key('0x48', after=10))
+for vk in ['0x25'] * 3 + ['0x27'] * 6 + ['0x26'] * 3 + ['0x28'] * 6:
+    s = s.key(vk, after=1)
+case('res-campaign-3440x1440', s, 180, ingame=True, alive=True, size=(3440, 1440),
+     ini={'Video': {'ScreenWidth': 3440, 'ScreenHeight': 1440}})
 
 
 def farm(d, ini=None):
