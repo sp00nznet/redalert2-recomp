@@ -143,6 +143,7 @@ static POINT g_modern_right_origin;      /* screen point of the right press */
 static volatile LONG g_gw = 800, g_gh = 600;   /* the game's picture, last frame */
 static RECT g_dst;                       /* where it is drawn in the client area */
 static int g_cut_at, g_cut_w;            /* a menu's black band left out, in game x (cut_menu_band) */
+static POINT ui_to_game(POINT p);        /* a point of the UI-scaled picture in game x, y (ui_compose) */
 static int g_fullscreen;
 static RECT g_windowed;                  /* the window's rect before fullscreen */
 static HWND g_capture_target;            /* the game window a held button went to */
@@ -350,7 +351,7 @@ static POINT to_game(int x, int y) {
     if (p.x >= g_gw) p.x = g_gw - 1;
     if (p.y >= g_gh) p.y = g_gh - 1;
     if (g_cut_w && p.x >= g_cut_at) p.x += g_cut_w;
-    return p;
+    return ui_to_game(p);
 }
 
 /* The deepest visible game window at a game point, and the point in its client
@@ -480,6 +481,66 @@ static int cut_menu_band(uint32_t* f, int w, int h, int s) {
     return keep;
 }
 
+/* UI scale (docs/presenter.md). The lift asks ra2_ui_sidebar_h() for the
+ * sidebar's height when a battle lays it out (run_lift.py UI_SCALE_SITES); at
+ * a scale of 2 or 3 it answers a half or a third of the screen, less the
+ * radar, so the sidebar sits in the top of its strip. The presenter then
+ * draws that part of the strip s times larger beside the 1:1 battlefield. The
+ * scale a battle was laid out with is kept apart from the setting, which
+ * applies from the next battle, and the picture is composed only at that
+ * battle's height, in the battle (the game drawing its cursor), with no menu
+ * band cut. A scale is used only where the sidebar keeps at least the 600
+ * lines it has at 800x600. */
+#define UI_RADAR_H 0x9E                  /* the sidebar's rect starts below the radar */
+#define UI_MIN_H 600
+static volatile LONG g_ui_scale = 1;     /* the setting: 1, 2 or 3 */
+static volatile LONG g_ui_live = 1;      /* the scale the battle's sidebar was laid out with */
+static volatile LONG g_ui_live_h;        /* ... and the screen height it was laid out for */
+static volatile LONG g_ui_drawn = 1;     /* the scale of the last picture drawn (for to_game) */
+static uint32_t* g_ui_buf;
+
+static int ui_fits(int h, int s) { return s > 1 && h / s >= UI_MIN_H; }
+
+int32_t ra2_ui_sidebar_h(int32_t h) {
+    const char* env = getenv("RA2_UI_SCALE");   /* headless (tools/playtest.py): no ra2.ini read */
+    int s = env && (atoi(env) == 2 || atoi(env) == 3) ? atoi(env) : (int)g_ui_scale, screen = h + UI_RADAR_H;
+    InterlockedExchange(&g_ui_live_h, screen);
+    if (!ui_fits(screen, s)) { InterlockedExchange(&g_ui_live, 1); return h; }
+    InterlockedExchange(&g_ui_live, s);
+    fprintf(stderr, "[present] UI scale %dx: sidebar %d lines of %d\n", s, screen / s - UI_RADAR_H, h);
+    return screen / s - UI_RADAR_H;
+}
+
+/* The w x h picture with its sidebar strip's top 1/s drawn s times larger, in
+ * g_ui_buf; the new width, or w (and the picture unchanged) where it doesn't
+ * apply. */
+static int ui_compose(const uint32_t* f, int w, int h, const uint32_t** out) {
+    int s = (int)g_ui_live, base = w - SIDEBAR_W, ow = base + SIDEBAR_W * s;
+    *out = f;
+    InterlockedExchange(&g_ui_drawn, 1);
+    if (s < 2 || h != g_ui_live_h || g_cut_w || host_menu_cursor() || base <= 0 || ow > 4096) return w;
+    if (!g_ui_buf && !(g_ui_buf = (uint32_t*)malloc((size_t)4096 * 2160 * 4))) return w;
+    for (int y = 0; y < h; y++) {
+        uint32_t* row = g_ui_buf + (size_t)y * ow;
+        const uint32_t* src = f + (size_t)(y / s) * w + base;
+        memcpy(row, f + (size_t)y * w, (size_t)base * 4);
+        for (int x = 0; x < SIDEBAR_W * s; x++) row[base + x] = src[x / s];
+    }
+    *out = g_ui_buf;
+    InterlockedExchange(&g_ui_drawn, s);
+    return ow;
+}
+
+static POINT ui_to_game(POINT p) {
+    int s = (int)g_ui_drawn, base = (int)g_gw - SIDEBAR_W * s;
+    if (s > 1 && p.x >= base) p.x = base + (p.x - base) / s, p.y /= s;
+    return p;
+}
+
+/* The game width that, with the UI scale's wider sidebar, makes a picture w
+ * wide: a resolution picked from the menu is the size on screen. */
+static int ui_game_w(int w, int h) { return ui_fits(h, (int)g_ui_scale) ? w - SIDEBAR_W * ((int)g_ui_scale - 1) : w; }
+
 static void forward_mouse(UINT m, WPARAM w, int x, int y) {
     POINT gp = to_game(x, y), local;
     HWND t;
@@ -577,6 +638,8 @@ static void settings_save(HWND hw) {
         _snprintf(hv, sizeof hv - 1, "%d", ra2_vox_hd_show ? ra2_vox_scale() : 0), hv[sizeof hv - 1] = 0;
         WritePrivateProfileStringA("present", hdvox_key(), hv, g_ini);   /* 0 off, 2 or 3 the scale */
         WritePrivateProfileStringA("present", "hdvox_aa", ra2_vox_aa ? "1" : "0", g_ini);   /* 1x-smooth overlay */
+        _snprintf(hv, sizeof hv - 1, "%ld", g_ui_scale), hv[sizeof hv - 1] = 0;
+        WritePrivateProfileStringA("present", "uiscale", hv, g_ini);    /* 1, 2 or 3 */
     }
     if (hw && !g_fullscreen && !IsIconic(hw)) {
         RECT r;
@@ -604,7 +667,7 @@ static void set_game_resolution(int w, int h) {
 }
 
 enum { ID_SCALE = 100, ID_BARS = 200, ID_FULL = 300, ID_RES = 400, ID_HDVOX = 500,
-       ID_MOD = 600, ID_CONTROLS = 700 };
+       ID_MOD = 600, ID_CONTROLS = 700, ID_UI = 800 };
 #define MAX_MENU_MODS 64
 
 static void settings_menu(HWND hw) {             /* at the mouse */
@@ -613,6 +676,7 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     HMENU mods = CreatePopupMenu();
     HMENU controls = CreatePopupMenu();
     HMENU hd = CreatePopupMenu();
+    HMENU ui = CreatePopupMenu();
     static char mod_names[MAX_MENU_MODS][128];
     int nmods = mods_list(mod_names, MAX_MENU_MODS);
     static const char* const scale_label[NMODES] = { "Sharp (default)", "Smooth", "CRT", "Nearest", "Integer" };
@@ -623,7 +687,8 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     AppendMenuA(bars, MF_STRING | (!g_bars ? MF_CHECKED : 0), ID_BARS + 0, "Black");
     for (int i = 0; i < NRES; i++) {
         _snprintf(lbl, sizeof lbl - 1, "%d x %d", k_res[i][0], k_res[i][1]), lbl[sizeof lbl - 1] = 0;
-        AppendMenuA(res, MF_STRING | (opt_ok() && *OPT_W == k_res[i][0] && *OPT_H == k_res[i][1] ? MF_CHECKED : 0),
+        AppendMenuA(res, MF_STRING | (opt_ok() && *OPT_W == ui_game_w(k_res[i][0], k_res[i][1]) &&
+                                      *OPT_H == k_res[i][1] ? MF_CHECKED : 0),
                     ID_RES + i, lbl);
     }
     AppendMenuA(m, MF_POPUP, (UINT_PTR)sc, "Scaling\tF12");
@@ -642,6 +707,10 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     AppendMenuA(controls, MF_STRING | (InterlockedCompareExchange(&g_modern_controls, 0, 0) ? MF_CHECKED : 0),
                 ID_CONTROLS + 1, "Modern");
     AppendMenuA(m, MF_POPUP, (UINT_PTR)controls, "Controls");
+    AppendMenuA(ui, MF_STRING | (g_ui_scale == 1 ? MF_CHECKED : 0), ID_UI + 1, "Off");
+    AppendMenuA(ui, MF_STRING | (g_ui_scale == 2 ? MF_CHECKED : 0), ID_UI + 2, "2x (game resolution 1200 lines or more)");
+    AppendMenuA(ui, MF_STRING | (g_ui_scale == 3 ? MF_CHECKED : 0), ID_UI + 3, "3x (1800 lines or more)");
+    AppendMenuA(m, MF_POPUP, (UINT_PTR)ui, "UI scale, the sidebar (next battle)");
     AppendMenuA(m, MF_SEPARATOR, 0, NULL);
     AppendMenuA(m, MF_POPUP, (UINT_PTR)res, "Game resolution (next battle)");
     /* the mods in mods\<game>: choosing one restarts the game with it (mods.c) */
@@ -663,7 +732,15 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     }
     else if (cmd == ID_CONTROLS || cmd == ID_CONTROLS + 1)
         InterlockedExchange(&g_modern_controls, cmd - ID_CONTROLS);
-    else if (cmd >= ID_RES && cmd < ID_RES + NRES) set_game_resolution(k_res[cmd - ID_RES][0], k_res[cmd - ID_RES][1]);
+    else if (cmd >= ID_UI + 1 && cmd <= ID_UI + 3) {
+        /* the picture keeps its size on screen: the game is made narrower
+         * by what the wider sidebar adds, or wider by what it gave back */
+        int shown = opt_ok() ? *OPT_W + (*OPT_W - ui_game_w(*OPT_W, *OPT_H)) : 0;
+        InterlockedExchange(&g_ui_scale, cmd - ID_UI);
+        if (shown) set_game_resolution(ui_game_w(shown, *OPT_H), *OPT_H);
+    }
+    else if (cmd >= ID_RES && cmd < ID_RES + NRES)       /* the size on screen, with the UI scale's sidebar */
+        set_game_resolution(ui_game_w(k_res[cmd - ID_RES][0], k_res[cmd - ID_RES][1]), k_res[cmd - ID_RES][1]);
     else if (cmd >= ID_MOD && cmd <= ID_MOD + nmods) {
         const char* name = cmd == ID_MOD ? "" : mod_names[cmd - ID_MOD - 1];
         char ask[256];
@@ -919,22 +996,28 @@ static DWORD WINAPI present_thread(LPVOID arg) {
             Sleep(1);
         } else if (hd) {                           /* 1x base + Nx overlay (hd = N) */
             int full = gw;
+            const uint32_t* pic;
             gw = cut_menu_band(frame, gw, gh, 1);  /* the base is 1x now */
+            gw = ui_compose(frame, gw, gh, &pic);
             InterlockedExchange(&g_gw, gw);
             InterlockedExchange(&g_gh, gh);
             QueryPerformanceCounter(&t1);
-            if (gw != full)                        /* a menu band was cut: no units behind it */
-                draw(frame, gw, gh, NULL, 0, 0, 0, 0, 0, 0);
+            /* a menu band was cut: no units behind it; a UI-scaled picture
+             * no longer lines up with the overlay: its units at 1x */
+            if (gw != full)
+                draw(pic, gw, gh, NULL, 0, 0, 0, 0, 0, 0);
             else
                 draw(frame, gw, gh, ovbuf, hd * gw, hd * gh, dx, dy, dw, dh);
             QueryPerformanceCounter(&t2);
             frame_stats(t0, t1, t2);
         } else if (host_frame(frame, 4096, 2160, &gw, &gh)) {
+            const uint32_t* pic;
             gw = cut_menu_band(frame, gw, gh, 1);
+            gw = ui_compose(frame, gw, gh, &pic);
             InterlockedExchange(&g_gw, gw);
             InterlockedExchange(&g_gh, gh);
             QueryPerformanceCounter(&t1);
-            draw(frame, gw, gh, NULL, 0, 0, 0, 0, 0, 0);
+            draw(pic, gw, gh, NULL, 0, 0, 0, 0, 0, 0);
             QueryPerformanceCounter(&t2);
             frame_stats(t0, t1, t2);
         } else {
@@ -972,6 +1055,10 @@ void present_start(int mode, int fullscreen) {
         ra2_vox_aa = ra2_vox_hd_show && GetPrivateProfileIntA("present", "hdvox_aa", 0, g_ini);
     }
     ra2_vox_hd_on = 1;                      /* on or off, F10 can switch them on (hdvox.h) */
+    {
+        int us = GetPrivateProfileIntA("present", "uiscale", 1, g_ini);
+        InterlockedExchange(&g_ui_scale, us == 2 || us == 3 ? us : 1);
+    }
     if (mode >= 0) g_mode = mode;
     input_live(1);
     CloseHandle(CreateThread(NULL, 0, present_thread, (LPVOID)(intptr_t)fullscreen, 0, NULL));

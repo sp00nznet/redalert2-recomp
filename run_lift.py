@@ -463,6 +463,26 @@ def launcher_patches(target):
             for va in LAUNCHER_SITES[target]}
 
 
+# UI scale (docs/presenter.md). The sidebar lays itself out from one rect,
+# set at 0x006A5130 (game.exe 0x0067B910): below the 158-line radar, 168 wide,
+# down to the bottom of the screen (0x00886F9C, its height). Every row of build
+# icons, its buttons and its bottom piece follow from that height. With a UI
+# scale of 2 or 3, the presenter's ra2_ui_sidebar_h() shortens it to a half or
+# a third of the screen, so the whole sidebar is in the top of its strip, and
+# the presenter draws that part 2 or 3 times larger; the battlefield stays 1:1.
+# The patch goes after the lea that computes the height, before its store.
+UI_SCALE_SITES = {
+    'gamemd': (0x006A5187, 0x006A51D0),
+    'game': (0x0067B937,),
+}
+
+
+def ui_scale_patches(target):
+    return {va: '{ extern int32_t ra2_ui_sidebar_h(int32_t); eax = (uint32_t)ra2_ui_sidebar_h((int32_t)eax); } '
+                '/* remaster: UI scale, the sidebar laid out in the top of its strip (run_lift.py UI_SCALE_SITES) */'
+            for va in UI_SCALE_SITES[target]}
+
+
 def apply_patches(body, patches):
     """Add each patch's C after the line that lifts its instruction."""
     for va, c in patches.items():
@@ -498,7 +518,8 @@ def targets():
                        title="Yuri's Revenge", game_frame=0x00A8ED84, stamp=0x3BDF544E,
                        patches=lambda code, cs: {**sidebar_rows_patches(code, cs), **HD_VOXEL_PATCHES,
                                                  **modern_controls_patches('gamemd'), **queue_five_patches('gamemd'),
-                                                 **clip_line_patches('gamemd'), **launcher_patches('gamemd')}),
+                                                 **clip_line_patches('gamemd'), **launcher_patches('gamemd'),
+                                                 **ui_scale_patches('gamemd')}),
         'game': dict(exe=os.path.join(_HERE, 'game', 'game.exe'),
                      catalog=os.path.join(_HERE, 'work', 'game', 'functions.json'),
                      seeds=os.path.join(_HERE, 'work', 'game', 'rtti_seeds.json'),
@@ -513,7 +534,8 @@ def targets():
                                                                      (0x0083962C, 0x00ABCD64)),
                                                **HD_VOXEL_PATCHES_GAME,
                                                **modern_controls_patches('game'), **queue_five_patches('game'),
-                                               **clip_line_patches('game'), **launcher_patches('game')}),
+                                               **clip_line_patches('game'), **launcher_patches('game'),
+                                               **ui_scale_patches('game')}),
     }
 
 
