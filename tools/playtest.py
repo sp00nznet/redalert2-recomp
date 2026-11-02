@@ -31,6 +31,7 @@ fails on the lift and passes there, the lift is wrong; where both fail, the
 host is.
 """
 import argparse
+import collections
 import contextlib
 import fnmatch
 import json
@@ -39,6 +40,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import struct
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -209,6 +211,8 @@ def S():
 #   expect 'ini':     RA2MD.INI values for the case's game folder, {section: {key: value}}
 #   expect 'size':    the picture in game is this (w, h)
 #   expect 'hd':      HD voxels on, and no 2x picture showed the units at 1x
+#   expect 'timer_once': the superweapon timer, at the tactical view's bottom
+#                     right, is drawn once in every full-size --shots picture
 CASES = {}
 
 
@@ -402,6 +406,18 @@ for w, h in RES:
 case('res-campaign-1920x1080', SP().press(SINGLE, 'NewCampaign', CAMPAIGN).press(CAMPAIGN, 1770)
      .waitlog(INGAME).move(880, 540, after=2).key('0x48', after=10), 300, ingame=True, alive=True,
      size=(1920, 1080), ini={'Video': {'ScreenWidth': 1920, 'ScreenHeight': 1080}})
+# A view larger than the map (issue #27): the Allied first mission at 3440x1440,
+# scrolled with the arrow keys. The view jumped and left the base drawn twice.
+s = (SP().press(SINGLE, 'NewCampaign', CAMPAIGN).press(CAMPAIGN, 1770)
+     .waitlog(INGAME).move(1640, 720, after=2).key('0x48', after=10))
+for vk in ['0x25'] * 3 + ['0x27'] * 6 + ['0x26'] * 3 + ['0x28'] * 6:
+    s = s.key(vk, after=1)
+# Yuri's Revenge's mission has a Psychic Dominator timer, drawn again on every
+# scroll, a column of copies down the left of the sidebar: timer_once. Red
+# Alert 2's has no timer, and starts in the INI's mode, so its menus are full
+# size too.
+case('res-campaign-3440x1440', s, 300, ingame=True, alive=True, size=(3440, 1440),
+     timer_once=TARGET == 'gamemd', ini={'Video': {'ScreenWidth': 3440, 'ScreenHeight': 1440}})
 
 
 def farm(d, ini=None):
@@ -435,6 +451,37 @@ def farm(d, ini=None):
     return d
 
 
+def timer_copies(bmp):
+    """How many times the superweapon timer is drawn in one --shots picture:
+    the bands of rows, in a strip left of the sidebar, holding the timer's
+    colour; None when the picture is not full size or shows no timer. The
+    timer is right-aligned at the tactical view's bottom right, just above the
+    bottom bar (the first full-width rows from the bottom), so its colour is
+    the commonest there. Copies left behind by a scroll are the same pixels."""
+    w, h = struct.unpack('<ii', open(bmp, 'rb').read(26)[18:26])
+    h = abs(h)
+    if (w, h) == (800, 600):
+        return None
+    x, cw = w - 560, 360                             # ends left of the sidebar (168 wide) and its frame
+    raw = subprocess.run(['ffmpeg', '-v', 'error', '-i', bmp, '-vf', 'crop=%d:%d:%d:0' % (cw, h, x),
+                          '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], capture_output=True).stdout
+    if len(raw) != cw * h * 3:
+        return None
+    rows = [[raw[i:i + 3] for i in range(y * cw * 3, (y + 1) * cw * 3, 3)] for y in range(h)]
+    black = b'\0\0\0'
+    bar = next((y for y in range(h - 100, h) if sum(p != black for p in rows[y]) > 0.9 * cw), h)
+    near = collections.Counter(p for r in rows[bar - 40:bar] for p in r if p != black)
+    if not near:
+        return None
+    colour = near.most_common(1)[0][0]
+    bands, last = 0, -10
+    for y in range(bar):
+        if sum(p == colour for p in rows[y]) >= 3:
+            bands += y - last > 4                    # a gap of more than 4 rows starts a new band
+            last = y
+    return bands
+
+
 def run(name, args, seconds, expect, every, original=False):
     d = os.path.join(OUT, name + ('.original' if original else ''))
     if os.path.isdir(os.path.join(d, 'game')):
@@ -445,6 +492,11 @@ def run(name, args, seconds, expect, every, original=False):
     cmd = WINE + [HOST, '--headless', '--run', '--mute', '--debuglog', '--watchdog', str(seconds),
                   '--record', host_path(mp4), '--exe', host_path(os.path.join(game, GAME_EXE)),
                   '--game', host_path(game)] + args
+    if expect.get('timer_once'):
+        for f in os.listdir(d):
+            if f.startswith('shot_'):
+                os.remove(os.path.join(d, f))
+        cmd += ['--shots', host_path(d)]
     cmd += os.environ.get('RA2_HOST_ARGS', '').replace('{case}', d).split()  # extra host flags; {case} is the case's folder
     if original:
         cmd.append('--original')
@@ -503,6 +555,26 @@ def run(name, args, seconds, expect, every, original=False):
                 bad.append('%d pictures with the units at 1x' % dips)
             if shown < 0.9 * offered or not offered:
                 bad.append('units at 2x in only %d of %d pixels' % (shown, offered))
+    # timer_once: read the full-size shots (the recording is scaled into
+    # 800x600, too coarse to tell copies apart), keep the last as a PNG, and
+    # delete the rest: 20 MB each.
+    if expect.get('timer_once'):
+        shots = sorted(f for f in os.listdir(d) if f.startswith('shot_') and f.endswith('.bmp'))
+        counts = [(f, timer_copies(os.path.join(d, f))) for f in shots]
+        counts = [(f, n) for f, n in counts if n is not None]
+        if counts:
+            subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', os.path.join(d, counts[-1][0]),
+                            os.path.join(d, 'last-full.png')], cwd=ROOT)
+        for f in shots:
+            os.remove(os.path.join(d, f))
+        worst = max(counts, key=lambda c: c[1]) if counts else None
+        if not worst:
+            bad.append('no full-size shot showed the timer')
+        else:
+            seen.append('timer once in %d shots' % sum(n == 1 for _, n in counts) if worst[1] == 1
+                        else 'timer x%d in %s' % (worst[1], worst[0]))
+            if worst[1] > 1:
+                bad.append('the timer drawn %d times (%s)' % (worst[1], worst[0]))
     # log: {text: at least n}, lines the game's own debug log must print
     # ("Adding event PRODUCE" for each order to build or train).
     for text, n in expect.get('log', {}).items():
