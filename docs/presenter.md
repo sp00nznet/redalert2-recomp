@@ -19,6 +19,9 @@ build\ra2.exe --run --classic                     # the original display
 | F12 | scaling: sharp-bilinear, smooth, CRT, nearest, integer |
 | F10, or right-click beside the picture | the settings menu |
 
+F10, F11 and F12 can be rebound, and mouse buttons 4 and 5 given a key, in
+`[keys]` (see [Input](#input)).
+
 The F10 menu includes **Controls**. **Classic** keeps the original games'
 controls. **Modern** uses left-click to select, left-click on open ground to
 deselect, and right-click for contextual orders, and adds Queue Five
@@ -41,6 +44,7 @@ bars=blur
 fullscreen=0
 hdvoxels=1
 controls=classic
+cursorlock=auto
 window=100,100,1600,900
 ```
 
@@ -67,6 +71,88 @@ A `--scale` or `--fullscreen` on the command line wins over the file.
   the old size back. 3840x2160 needs the sidebar fix in [hires.md](hires.md).
 - While the menu is open the picture holds still (the menu runs its own
   message loop on the presenter's thread); the game itself keeps running.
+
+## Input
+
+- **Cursor lock.** In a battle the mouse stays on the picture (`ClipCursor`
+  to the picture's rectangle), so edge scrolling works at the edge of an
+  ultrawide or a second monitor, and a click near the edge never lands on the
+  desktop. It lets go while the game shows its menus (the Windows cursor),
+  while the settings menu is open, when the window goes inactive (Alt-Tab, a
+  click on another window) or is minimised, and on exit, and takes the mouse
+  again when the window comes back. `cursorlock=auto` (the default) has it on
+  in Modern controls and off in Classic; `on` and `off` choose. F10, Controls,
+  *Keep the mouse in the picture in battle* switches it. The log says
+  `[input] cursor clip L,T,R,B` and `[input] cursor released (reason)`.
+- **Middle-drag pan** (Modern controls, in a battle). The middle button held
+  and moved is the game's own right-drag scroll: once the mouse has moved past
+  the Windows drag distance the presenter sends a right-down at the press
+  point, the moves with the right button held, and a right-up. The
+  battlefield hook starts the native pan at once for that right-down, so it is
+  never a right-click order, and it comes before the attack-move cancel. A
+  plain middle click sends nothing. While a building is being placed, the
+  right-down still reaches the game's placement mode, which cancels on a right
+  press as it always has.
+- **Rebindable keys.** `[keys]` in `ra2.ini`:
+
+  ```ini
+  [keys]
+  attackmove=A      ; Modern controls (modern-controls.md)
+  settings=F10
+  fullscreen=F11    ; Alt+Enter stays
+  scaling=F12
+  mouse4=none       ; the key mouse button 4 (back) sends
+  mouse5=none       ; ... button 5 (forward)
+  ```
+
+  A value is a letter or digit, a key name (`F1`-`F24`, `Esc`, `Space`, `Tab`,
+  `Enter`, `Home`, `End`, `PgUp`, `PgDn`, the arrows, `Numpad0`-`Numpad9`,
+  `Pause`, `Tilde`, ...), or a virtual-key number (`0x41`); `none` unbinds.
+  A mouse button's key goes through the same path as the keyboard's, so
+  `mouse4=A` arms attack-move and `mouse5=F10` opens the settings. A name the
+  table does not have, and a value it cannot read, are logged
+  (`[keys] unknown key ...`) and ignored. `--bind name=key` sets one for a run
+  and wins over the file.
+
+  The table is `k_keys` in `src/runtime/input.c` with its IDs (`KEY_*`) in
+  `input.h`. A feature that needs a key adds an ID and a row (name, label,
+  default) and asks `input_key_is(KEY_..., vk)` where it handles keys; the
+  loader, `--bind`, the logging and the F10 menu labels come with it, and
+  `input_key_ini_name`, `input_key_label`, `input_key_set` and
+  `input_key_to_name` are there for a keybinding page.
+- **Scroll speed** (`edgescroll=`, `keyscroll=`): not done here. Edge and key
+  scrolling move the view by a step per game frame, from the game's own
+  `ScrollRate` option (an index into its speed table: `OptionsClass` +0x10,
+  `0x00A8EB60` in Yuri's Revenge, read at `0x005FA71D` and saved at
+  `0x005FADA1`), so the speed follows the game speed and the presenter can only
+  change the index, a whole step at a time, which the game then saves to
+  `RA2MD.INI` as the player's own setting. A multiplier that does not depend on
+  the game speed needs a patch where the step is applied (`run_lift.py`); that
+  is left for the orders track.
+- **Raw input** (`WM_INPUT` with a `mousesens=`): dropped after a design look,
+  not built. A sensitivity other than Windows' needs a cursor of the
+  presenter's own, moved by raw deltas, that no longer matches the real one. In
+  a battle the game draws its cursor from what `GetCursorPos` answers, so that
+  would work while the cursor lock holds; but the menus (the game's and the
+  F10 one) use the Windows cursor, the hit test and the bars use the real
+  position, and every switch between them would have to warp the real cursor
+  (`SetCursorPos`) to the presenter's, which is the fight with the game's own
+  cursor the plan said to stop at. Windows' pointer speed already applies to
+  the presenter, and in a battle the game's cursor follows it 1:1.
+
+### Self-test
+
+`--selftest-input S` (a script step, [testing.md](testing.md)) runs in a
+battle, `S` seconds in, with no window: the picture is taken as 2x in a wider
+client area (`160,0,1440,960` for 640x480) and the messages a player sends go
+through the window procedure. The cursor lock logs what it would clip and
+never touches the machine's real mouse; what the presenter forwards reaches the
+game as in play. `tools/playtest.py`'s `input-selftest` checks that the lock
+clips four times and lets go on focus loss, minimise and the settings menu; a
+middle-drag reaches the game as the right-drag (`[modern] middle-drag pan`
+from the battlefield hook, on the game's thread); a middle click sends nothing;
+mouse 4 (`--bind mouse4=A`) arms attack-move and mouse 5 (`--bind mouse5=H`)
+posts H to the game; and an unknown `[keys]` name is logged.
 
 ## How it fits together
 
