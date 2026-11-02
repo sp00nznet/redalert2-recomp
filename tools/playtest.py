@@ -195,6 +195,17 @@ class Script:
         self.t += 1
         return self
 
+    def _args(self, *a):
+        self.args += list(a)
+        return self
+
+    def selftest_input(self, after=0):
+        """The presenter's input path, fed without a window (--selftest-input)."""
+        self.t += after
+        self.args += ['--selftest-input', '%g' % self.t]
+        self.t += 15
+        return self
+
 
 def S():
     return Script()
@@ -408,6 +419,24 @@ else:
          log={'[modern] attack-move order': 1, 'attacker mission 2 (': 1}, ini=VGA)
     case('skirmish-move', attackmove(False), 720, ingame=True,
          nolog=['[modern] attack-move order', 'attacker mission 2 ('], ini=VGA)
+
+
+# The presenter's input (docs/presenter.md), headless: --selftest-input feeds
+# its window procedure in a battle. The cursor lock clips and lets go (focus,
+# minimise, the settings menu) and clips again; a middle-drag reaches the game
+# as the right-drag scroll and the battlefield hook pans at once; a middle
+# click sends nothing; mouse 4 sends the attack-move key and mouse 5 H, bound
+# with --bind (ra2.ini is the player's). An unknown [keys] name is logged.
+case('input-selftest', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
+     .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10).selftest_input(after=2)
+     ._args('--controls', 'modern', '--bind', 'mouse4=A', '--bind', 'mouse5=H', '--bind', 'bogus=Q'),
+     240, ingame=True, ini=VGA,
+     log={'[input] cursor clip 160,0,1440,960': 4, '[input] cursor released (focus lost)': 2,
+          '[input] cursor released (minimised)': 1, '[input] cursor released (settings)': 1,
+          "[input] middle-drag: the game's right-drag from 320,240": 1, '[modern] middle-drag pan': 1,
+          '[input] middle click: nothing sent': 1, '[input] mouse4 -> key 0x41': 1,
+          '[modern] attack-move key 0x41': 1, '[input] mouse5 -> key 0x48': 1,
+          '[input] key down 0x48 posted to the game': 1, '[keys] unknown key bogus': 1, '[selftest] done': 1})
 
 
 def set_ini(text, section, key, value):

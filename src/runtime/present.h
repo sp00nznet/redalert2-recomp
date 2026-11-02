@@ -19,3 +19,7 @@ void present_force_controls(const char* name);
 
 /* A key-down in Modern controls: 1 if it was taken (attack-move). */
 int ra2_modern_key(int vk, int repeat);
+
+/* --selftest-input (input.c's script, in a battle): synthetic messages through
+ * the window procedure, no window; logs what reaches the game. */
+void present_selftest_input(void);
