@@ -1,13 +1,16 @@
 /*
- * Battle info (docs/battle-info.md): health bars beyond the selection, and
- * the build percentage on a cameo and the build time in its tooltip. The
- * lift's patches call in here (run_lift.py battle_info_patches); every
- * setting is off by default, which is the game as it shipped.
+ * Battle info (docs/battle-info.md): health bars beyond the selection, the
+ * build percentage on a cameo and the build time in its tooltip, and the
+ * numbers the presenter's overlay line shows (game clock, frames a second,
+ * orders a minute). The lift's patches call in here (run_lift.py
+ * battle_info_patches); every setting is off by default, which is the game as
+ * it shipped.
  *
  *   [present] healthbars=selected|damaged|always   (ra2.ini, F10)
  *             buildinfo=0|1
+ *             overlay=0|1
  *
- * --healthbars MODE and --buildinfo set them for a headless run.
+ * --healthbars MODE, --buildinfo and --overlay set them for a headless run.
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -26,6 +29,7 @@
 
 int ra2_healthbars;                  /* BATTLEINFO_BARS_*: read by the patch on every object drawn */
 int ra2_buildinfo;
+volatile int ra2_overlay;
 static int g_log;                    /* a headless run asked for a setting: log what it did */
 
 static const char* const k_bars[] = { "selected", "damaged", "always" };
@@ -52,6 +56,7 @@ int battleinfo_arg(int argc, char** argv, int i) {
         return 2;
     }
     if (!strcmp(argv[i], "--buildinfo")) { ra2_buildinfo = 1, g_log = 1; return 1; }
+    if (!strcmp(argv[i], "--overlay")) { ra2_overlay = 1, g_log = 1; return 1; }
     return 0;
 }
 
@@ -102,22 +107,78 @@ void ra2_tooltip_time(uint32_t buffer, int frames) {
     }
 }
 
-/* Every 10 seconds of a headless run that asked for battle info: what it did. */
-static void battleinfo_log(void) {
-    fprintf(stderr, "[battleinfo] health bars %s, %ld forced; build %% drawn %ld times\n",
-            battleinfo_bars_name(ra2_healthbars), g_bars_forced, g_pct_drawn);
+/* ---- the overlay's numbers ---------------------------------------------------
+ * Orders are the events this player puts in the game's outgoing list (the
+ * patch is on every inline add): move, attack, build, place, deploy... Kept
+ * per second for a minute, so orders a minute is the last 60 seconds'. */
+static volatile long g_orders;
+
+void ra2_order_added(void) {
+    if (!g_orders++ && g_log) fprintf(stderr, "[battleinfo] first order counted\n");
+}
+
+#define WINDOW_S 60
+static struct {
+    long orders[WINDOW_S];           /* orders in each second of the last minute */
+    int at, filled;
+    long orders_seen;
+    uint32_t frame_seen;
+    int fps, apm, clock_s;
+    int in_battle;
+} g_stats;
+
+/* Once a second from the presenter, or the host's ticker when headless:
+ * the game's own frame count (it starts again with each game) gives the
+ * clock and frames a second; the order count, orders a minute. */
+void battleinfo_tick(void) {
+    uint32_t frame = *(volatile uint32_t*)GUEST_PTR(RA2_GAME_FRAME_VA);
+    long orders = g_orders;
+    int moved = frame != g_stats.frame_seen;
+    if (frame < g_stats.frame_seen) {              /* a new game: start over */
+        memset(g_stats.orders, 0, sizeof g_stats.orders);
+        g_stats.filled = 0;
+    }
+    g_stats.fps = frame >= g_stats.frame_seen ? (int)(frame - g_stats.frame_seen) : 0;
+    g_stats.frame_seen = frame;
+    g_stats.at = (g_stats.at + 1) % WINDOW_S;
+    g_stats.orders[g_stats.at] = orders - g_stats.orders_seen;
+    g_stats.orders_seen = orders;
+    if (g_stats.filled < WINDOW_S) g_stats.filled++;
+    long sum = 0;
+    for (int i = 0; i < WINDOW_S; i++) sum += g_stats.orders[i];
+    g_stats.apm = (int)(g_stats.filled < WINDOW_S ? sum * 60 / g_stats.filled : sum);
+    g_stats.clock_s = (int)(frame / 15);
+    g_stats.in_battle = moved;
+    if (g_log) {
+        static int n;
+        if (moved && ++n % 10 == 0)
+            fprintf(stderr, "[battleinfo] overlay %s; health bars %s, %ld forced; build %% drawn %ld times; "
+                    "%ld orders\n", battleinfo_overlay_text(), battleinfo_bars_name(ra2_healthbars),
+                    g_bars_forced, g_pct_drawn, orders);
+    }
+}
+
+/* What the overlay line says, "12:34  60 FPS  85 APM", or "" outside a battle. */
+const char* battleinfo_overlay_text(void) {
+    static char line[64];
+    if (!g_stats.in_battle) return "";
+    _snprintf(line, sizeof line - 1, "%d:%02d  %d FPS  %d APM", g_stats.clock_s / 60, g_stats.clock_s % 60,
+              g_stats.fps, g_stats.apm);
+    line[sizeof line - 1] = 0;
+    return line;
 }
 
 static DWORD WINAPI ticker(LPVOID unused) {
     (void)unused;
     for (;;) {
-        Sleep(10000);
-        battleinfo_log();
+        Sleep(1000);
+        battleinfo_tick();
     }
     return 0;
 }
 
-/* Only when a headless run asked for battle info (the playtests' logged check). */
+/* Headless there is no presenter to tick: a thread of its own, only when a
+ * run asked for battle info (the playtests' logged check). */
 void battleinfo_start_headless(void) {
     if (g_log) CloseHandle(CreateThread(NULL, 0, ticker, NULL, 0, NULL));
 }

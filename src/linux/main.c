@@ -114,6 +114,7 @@ int ra2_healthbars, ra2_buildinfo;
 int ra2_healthbar_force(int health, int strength) { (void)health, (void)strength; return 0; }
 uint32_t ra2_build_pct_text(int stage) { (void)stage; return 0; }
 void ra2_tooltip_time(uint32_t buffer, int frames) { (void)buffer, (void)frames; }
+void ra2_order_added(void) {}
 
 /* ---- game-specific answers ------------------------------------------------ */
 

@@ -356,20 +356,23 @@ case('skirmish-build', place(place(
 
 # Battle info (docs/battle-info.md) on the same build order: every health bar
 # shown (healthbars=always), the build percentage on the cameo being built and
-# the build time in a hovered cameo's tooltip. Each feature's first use is a
-# log line, and every 10 s the counts.
+# the build time in a hovered cameo's tooltip, and the overlay's numbers
+# logged every 10 s in game (the presenter draws them; headless, the host only
+# counts). Each feature's first use is a log line; orders counted are the
+# events the player sent.
 battle_info = place(
     SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
     .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10)
     .click(236, 213, after=2).key('0x44', after=1).waitlog('Adding event DEPLOY')
     .move(523, 251, after=8).click(523, 251, after=1)                   # power plant
     .move(523, 300, after=3).move(523, 251, after=25).click(523, 251, after=1))   # hover, then pick it up
-battle_info.args += ['--healthbars', 'always', '--buildinfo']
+battle_info.args += ['--healthbars', 'always', '--buildinfo', '--overlay']
 case('skirmish-battleinfo', battle_info, 150, ingame=True, alive=True,
      log={'Adding event PRODUCE': 1, 'Adding event PLACE': 1,
           '[battleinfo] first health bar shown by healthbars=always': 1,
           '[battleinfo] first build percentage': 1, '[battleinfo] tooltip build time': 1,
-          '[battleinfo] health bars always': 3},
+          '[battleinfo] first order counted': 1,
+          '[battleinfo] overlay ': 3},
      ini={'Video': {'ScreenWidth': 640, 'ScreenHeight': 480}})
 
 case('skirmish-loop', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')

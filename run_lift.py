@@ -479,18 +479,23 @@ def launcher_patches(target):
 # * Build time. The tooltip text ("Name\n$cost" in a static buffer) gets the
 #   type's build time from its GetBuildSpeed (vtable +0x88, frames), at the
 #   point both formats' paths join, before the game turns spaces into breaks.
+# * Orders. Every event the player sends is copied into the outgoing ring
+#   inline, at some 40 sites: `cmp [count], 0x80` (room?), the copy, then
+#   `inc reg; mov [count], reg`. Each store of the bumped count is counted.
 BATTLE_INFO_TARGETS = {
     'gamemd': {
         'hover': 0x006F5E37, 'obj': 'ebp', 'selected': 0x83, 'get_type': 0x88,
         'strip_text': 0x006A9D94, 'text_slot': 0x40, 'entry_slot': 0x30, 'entry_factory': 0x64,
         'entry_status': 0x68, 'factory_rate': 0x38, 'factory_held': 0x70,
         'tooltip': 0x006A93B2, 'tooltip_buffer': 0x00B07BC4,
+        'out_count': 0x00A802C8,
     },
     'game': {
         'hover': 0x006C389D, 'obj': 'esi', 'selected': 0x77, 'get_type': 0x84,
         'strip_text': 0x0067FFFB, 'text_slot': 0x28, 'entry_slot': 0x1C, 'entry_factory': 0x60,
         'entry_status': 0x64, 'factory_rate': 0x34, 'factory_held': 0x6C,
         'tooltip': 0x0067F648, 'tooltip_buffer': 0x00AB9484,
+        'out_count': 0x00A32338,
     },
 }
 
@@ -498,7 +503,7 @@ BATTLE_INFO_TARGETS = {
 def battle_info_patches(target, code, cs):
     t = BATTLE_INFO_TARGETS[target]
     obj = t['obj']
-    return {
+    out = {
         t['hover']: (
             '{ extern int ra2_healthbars; extern int ra2_healthbar_force(int, int); '
             'if (ra2_healthbars && !LO8(eax) && !MEM8(%s + 0x%X)) { int _hb_hp = (int32_t)MEM32(%s + 0x6C); '
@@ -522,6 +527,23 @@ def battle_info_patches(target, code, cs):
             '/* battle info: build time, run_lift.py battle_info_patches */'
         ) % t['tooltip_buffer'],
     }
+    md = Cs(CS_ARCH_X86, CS_MODE_32)
+    count = t['out_count'].to_bytes(4, 'little')
+    room = b'\x81\x3d' + count + b'\x80\x00\x00\x00'          # cmp dword ptr [count], 0x80
+    i = code.find(room)
+    while i != -1:
+        bumped = None
+        for ins in md.disasm(code[i:i + 0x80], cs + i):
+            ops = ins.op_str
+            if ins.mnemonic == 'inc':
+                bumped = ops
+            elif ins.mnemonic == 'mov' and ops.startswith('dword ptr [0x%x], ' % t['out_count']):
+                if ops.split(', ')[1] in bumped:
+                    out[ins.address] = ('{ extern void ra2_order_added(void); ra2_order_added(); } '
+                                        '/* battle info: orders a minute, run_lift.py battle_info_patches */')
+                break
+        i = code.find(room, i + 1)
+    return out
 
 
 def apply_patches(body, patches):

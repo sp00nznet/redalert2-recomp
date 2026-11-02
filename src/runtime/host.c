@@ -1346,7 +1346,7 @@ int main(int argc, char** argv) {
                    "           [--press DLG:CTRL@s] [--select DLG:CTRL=N@s] [--waitlog TEXT@s] [--move|--click x,y@s] [--key [c][s][a]+vk@s] [--wait VA@s]\n"
                    "           [--watchdog S] [--probe VA] [--debuglog] [--original] [--native-trace] [--callbacks]\n"
                    "           [--hd-voxels] [--hd-scale 2|3] [--hd-voxels-dump DIR] [--mute] [--args FILE]\n"
-                   "           [--healthbars selected|damaged|always] [--buildinfo]\n");
+                   "           [--healthbars selected|damaged|always] [--buildinfo] [--overlay]\n");
             recomp_trace_help();
             return argv[i][1] == 'h' || argv[i][2] == 'h' ? 0 : 1;
         }
