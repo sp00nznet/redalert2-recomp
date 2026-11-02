@@ -65,6 +65,14 @@ A `--scale` or `--fullscreen` on the command line wins over the file.
   (`0x00A8EB60` +0x24/+0x28, the object the settings reader is called on at
   `0x0052C630`), because the game saves its own options on exit and would put
   the old size back. 3840x2160 needs the sidebar fix in [hires.md](hires.md).
+  Red Alert 2 (`RA2.INI`, options at `0x00A40B18` +0x20/+0x24) sets its mode
+  once, before the main menu: it starts a battle in the options' size only
+  with `[Video] AllowModeToggle=yes`, and with that on it faults, the original
+  code too. So there the menu says *restarts the game*, and after a pick asks
+  to restart now (the same mod and arguments, as a mod change does).
+  Playtests: `res-f10-saved` picks a size (`--resolution WxH@s`), quits from
+  the menu and checks the game's own save kept it; `res-next-battle` (Yuri's
+  Revenge) checks the next skirmish opens at it.
 - While the menu is open the picture holds still (the menu runs its own
   message loop on the presenter's thread); the game itself keeps running.
 

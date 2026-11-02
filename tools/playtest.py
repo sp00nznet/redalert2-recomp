@@ -189,6 +189,12 @@ class Script:
         self.t += 3
         return self
 
+    def resolution(self, w, h):
+        """F10's game resolution, for the next battle (input.c --resolution)."""
+        self.args += ['--resolution', '%dx%d@%g' % (w, h, self.t)]
+        self.t += 1
+        return self
+
     def key(self, vk, after=0):
         self.t += after
         self.args += ['--key', '%s@%g' % (vk, self.t)]
@@ -207,6 +213,7 @@ def S():
 #   expect 'alive':   no human player was defeated
 #   expect 'exit':    the exit code
 #   expect 'ini':     RA2MD.INI values for the case's game folder, {section: {key: value}}
+#   expect 'saved':   RA2MD.INI values the run must leave there, {section: {key: value}}
 #   expect 'size':    the picture in game is this (w, h)
 #   expect 'hd':      HD voxels on, and no 2x picture showed the units at 1x
 CASES = {}
@@ -399,6 +406,19 @@ for w, h in RES:
     case('res-%dx%d' % (w, h), SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
          .waitlog(INGAME).move(w // 2 - 80, h // 2, after=2).key('0x48', after=10),
          180, ingame=True, size=(w, h), ini=video)
+# A resolution picked from F10 in the menus (--resolution, the menu's own
+# code), then the game quit from its menu: its own save of the options on exit
+# must keep the new size, which the next start opens at (issue #39).
+case('res-f10-saved', EXIT(S().resolution(1720, 720)), 60, exit=0,
+     ini={'Video': {'ScreenWidth': 1024, 'ScreenHeight': 768}},
+     saved={'Video': {'ScreenWidth': '1720', 'ScreenHeight': '720'}})
+# Yuri's Revenge also opens the next battle at it, without a restart. Red
+# Alert 2 sets its mode once, at start (present.c, RES_WHEN): F10 offers to
+# restart it, and res-f10-saved is what that restart reads.
+if TARGET != 'game':
+    case('res-next-battle', SP().resolution(1720, 720).press(SINGLE, 'Skirmish', SKIRMISH)
+         .press(SKIRMISH, 'StartGame').waitlog(INGAME).move(780, 360, after=2).key('0x48', after=10),
+         180, ingame=True, size=(1720, 720), ini={'Video': {'ScreenWidth': 1024, 'ScreenHeight': 768}})
 case('res-campaign-1920x1080', SP().press(SINGLE, 'NewCampaign', CAMPAIGN).press(CAMPAIGN, 1770)
      .waitlog(INGAME).move(880, 540, after=2).key('0x48', after=10), 300, ingame=True, alive=True,
      size=(1920, 1080), ini={'Video': {'ScreenWidth': 1920, 'ScreenHeight': 1080}})
@@ -511,6 +531,17 @@ def run(name, args, seconds, expect, every, original=False):
             bad.append('"%s" %d times, wanted %d' % (text, got, n))
         elif n:
             seen.append('%s x%d' % (text.split()[-1].lower(), got))
+    for sec, kv in expect.get('saved', {}).items():
+        p = os.path.join(game, GAME_INI)
+        body = open(p, errors='replace').read() if os.path.exists(p) else ''
+        m = re.search(r'(?ims)^\[%s\]\s*$(.*?)(?=^\[|\Z)' % re.escape(sec), body)
+        for k, v in kv.items():
+            got = re.search(r'(?im)^%s\s*=\s*(.*?)\s*$' % re.escape(k), m.group(1)) if m else None
+            got = got and got.group(1)
+            if got != v:
+                bad.append('%s [%s] %s=%s, wanted %s' % (GAME_INI, sec, k, got, v))
+            else:
+                seen.append('saved %s=%s' % (k, v))
     if 'exit' in expect and code != expect['exit']:
         bad.append('expected exit %d' % expect['exit'])
     elif 'exit' not in expect and code not in (0, 4):

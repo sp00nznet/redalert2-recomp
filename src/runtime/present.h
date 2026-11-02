@@ -5,6 +5,10 @@
 /* sharp, smooth, crt, nearest, integer -> 0..4, or -1. */
 int  present_mode_from_name(const char* name);
 
+/* F10's game resolution: the INI's [Video] and the options in memory, so the
+ * next battle opens at w x h. Also --resolution in a script (input.c). */
+void present_set_game_resolution(int w, int h);
+
 /* Open the window on a thread of its own and keep it showing the game.
  * mode and fullscreen of -1 take what ra2.ini (beside ra2.exe) remembers. */
 void present_start(int mode, int fullscreen);
