@@ -97,6 +97,22 @@ was. The sparse overlay and the full-frame compose write the same unit pixels
 overlay over the upscaled frame and compares it against compose, and 3x agrees
 to the same hair as the already-shipped 2x.
 
+**Changing scale or resolution while it runs.** The menu's 2x/3x is picked on
+the presenter's thread while the game's thread renders; it is held
+(`g_scale_want`) and applied by the game's thread at the next frame-surface
+copy, between frames, where nothing at the old N is in flight (#34). Compose
+and the overlay are told the N their buffer was sized for and skip a frame
+that no longer matches. The overlay lays its buffer out anew when the
+picture's size or scale changes, so a resolution change leaves no copies of
+units at the old stride. Once the menus are drawing (30 blits into the
+primary, which a battle does not do, with no publish since) the last battle's
+records are dropped rather than drawn wherever the menu happens to show their
+1x colour (#39); a battle that only stalls keeps them. The Linux host does not
+count those blits, so there the records stay. Playtests: `hd-scroll-3x`, and
+`hd-rescale` (scroll, 3x, back to 2x, with `RA2_HDVOX_CHECK=1` counting any
+opaque overlay pixel outside the records; it must be none). `--hd-scale N@s`
+switches at a time in a script.
+
 **Following the image onto the battlefield.** A unit is built in a 256x256
 staging surface (`[0x00B1D13C]`): each part (body, turret, barrel) is blitted
 into it through a remap, then the whole is copied onto the battlefield with
