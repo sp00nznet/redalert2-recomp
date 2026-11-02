@@ -189,6 +189,18 @@ class Script:
         self.t += 3
         return self
 
+    def hdscale(self, n):
+        """F10's HD vehicles scale, 2 or 3 (input.c --hd-scale N@s)."""
+        self.args += ['--hd-scale', '%d@%g' % (n, self.t)]
+        self.t += 1
+        return self
+
+    def resolution(self, w, h):
+        """F10's game resolution, for the next battle (input.c --resolution)."""
+        self.args += ['--resolution', '%dx%d@%g' % (w, h, self.t)]
+        self.t += 1
+        return self
+
     def key(self, vk, after=0):
         self.t += after
         self.args += ['--key', '%s@%g' % (vk, self.t)]
@@ -207,6 +219,7 @@ def S():
 #   expect 'alive':   no human player was defeated
 #   expect 'exit':    the exit code
 #   expect 'ini':     RA2MD.INI values for the case's game folder, {section: {key: value}}
+#   expect 'saved':   RA2MD.INI values the run must leave there, {section: {key: value}}
 #   expect 'size':    the picture in game is this (w, h)
 #   expect 'hd':      HD voxels on, and no 2x picture showed the units at 1x
 CASES = {}
@@ -320,6 +333,24 @@ hd_scroll = scroll(SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'Sta
                    .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10), 15)
 hd_scroll.args += ['--hd-voxels']
 case('hd-scroll', hd_scroll, 150, ingame=True, hd=True)
+# The same at 3x (issue #34), at 1280x720 where 3x fits the 4096-wide frame.
+hd_scroll_3x = scroll(SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
+                      .waitlog(INGAME).move(560, 360, after=2).key('0x48', after=10), 15)
+hd_scroll_3x.args += ['--hd-voxels', '--hd-scale', '3']
+case('hd-scroll-3x', hd_scroll_3x, 150, ingame=True, hd=True,
+     ini={'Video': {'ScreenWidth': 1280, 'ScreenHeight': 720}})
+# The HD scale switched in a battle, 2x -> 3x -> 2x, from the script's thread
+# as F10 does from the presenter's (issue #34: the switch freed the 2x images
+# under a render), while the view scrolls. The overlay's own check
+# (RA2_HDVOX_CHECK) counts opaque pixels left outside the current records: a
+# unit copy from before the switch (issue #39).
+s = SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame').waitlog(INGAME)
+s = scroll(s.move(560, 360, after=2).key('0x48', after=10).hdscale(3), 4)
+s = scroll(s.hdscale(2), 4)
+s.args += ['--hd-voxels']
+case('hd-rescale', s, 150, ingame=True, hdcheck=True, env={'RA2_HDVOX_CHECK': '1'},
+     log={'[hdvox] scale 3x': 1, '[hdvox] scale 2x': 1},
+     ini={'Video': {'ScreenWidth': 1280, 'ScreenHeight': 720}})
 # Building and training: deploy the MCV; build a power plant from the
 # sidebar's first icon and place it beside the construction yard; then a
 # barracks (the second row's first icon, once power is up) the same way; then
@@ -399,6 +430,19 @@ for w, h in RES:
     case('res-%dx%d' % (w, h), SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
          .waitlog(INGAME).move(w // 2 - 80, h // 2, after=2).key('0x48', after=10),
          180, ingame=True, size=(w, h), ini=video)
+# A resolution picked from F10 in the menus (--resolution, the menu's own
+# code), then the game quit from its menu: its own save of the options on exit
+# must keep the new size, which the next start opens at (issue #39).
+case('res-f10-saved', EXIT(S().resolution(1720, 720)), 60, exit=0,
+     ini={'Video': {'ScreenWidth': 1024, 'ScreenHeight': 768}},
+     saved={'Video': {'ScreenWidth': '1720', 'ScreenHeight': '720'}})
+# Yuri's Revenge also opens the next battle at it, without a restart. Red
+# Alert 2 sets its mode once, at start (present.c, RES_WHEN): F10 offers to
+# restart it, and res-f10-saved is what that restart reads.
+if TARGET != 'game':
+    case('res-next-battle', SP().resolution(1720, 720).press(SINGLE, 'Skirmish', SKIRMISH)
+         .press(SKIRMISH, 'StartGame').waitlog(INGAME).move(780, 360, after=2).key('0x48', after=10),
+         180, ingame=True, size=(1720, 720), ini={'Video': {'ScreenWidth': 1024, 'ScreenHeight': 768}})
 case('res-campaign-1920x1080', SP().press(SINGLE, 'NewCampaign', CAMPAIGN).press(CAMPAIGN, 1770)
      .waitlog(INGAME).move(880, 540, after=2).key('0x48', after=10), 300, ingame=True, alive=True,
      size=(1920, 1080), ini={'Video': {'ScreenWidth': 1920, 'ScreenHeight': 1080}})
@@ -452,6 +496,7 @@ def run(name, args, seconds, expect, every, original=False):
     with open(log, 'w', errors='replace') as f, (IPX if lan else contextlib.nullcontext()):
         try:
             code = subprocess.run(cmd, cwd=ROOT, stdout=f, stderr=subprocess.STDOUT,
+                                  env=dict(os.environ, **expect.get('env', {})),   # a case's own variables
                                   timeout=seconds + 300).returncode
         except subprocess.TimeoutExpired:
             code = 'timeout'
@@ -503,6 +548,15 @@ def run(name, args, seconds, expect, every, original=False):
                 bad.append('%d pictures with the units at 1x' % dips)
             if shown < 0.9 * offered or not offered:
                 bad.append('units at 2x in only %d of %d pixels' % (shown, offered))
+    # hdcheck: the overlay (RA2_HDVOX_CHECK) ran and left nothing outside the records
+    if expect.get('hdcheck'):
+        ov = re.findall(r'\[hdvox\] overlay \d+x\d+ at \dx: (\d+) calls, (\d+) pixels outside', text)
+        if not ov or int(ov[-1][0]) < 100:
+            bad.append('the overlay check never ran')
+        else:
+            seen.append('overlay: %s calls, %s pixels outside the records' % ov[-1])
+            if int(ov[-1][1]):
+                bad.append('%s overlay pixels outside the records (unit copies)' % ov[-1][1])
     # log: {text: at least n}, lines the game's own debug log must print
     # ("Adding event PRODUCE" for each order to build or train).
     for text, n in expect.get('log', {}).items():
@@ -511,6 +565,17 @@ def run(name, args, seconds, expect, every, original=False):
             bad.append('"%s" %d times, wanted %d' % (text, got, n))
         elif n:
             seen.append('%s x%d' % (text.split()[-1].lower(), got))
+    for sec, kv in expect.get('saved', {}).items():
+        p = os.path.join(game, GAME_INI)
+        body = open(p, errors='replace').read() if os.path.exists(p) else ''
+        m = re.search(r'(?ims)^\[%s\]\s*$(.*?)(?=^\[|\Z)' % re.escape(sec), body)
+        for k, v in kv.items():
+            got = re.search(r'(?im)^%s\s*=\s*(.*?)\s*$' % re.escape(k), m.group(1)) if m else None
+            got = got and got.group(1)
+            if got != v:
+                bad.append('%s [%s] %s=%s, wanted %s' % (GAME_INI, sec, k, got, v))
+            else:
+                seen.append('saved %s=%s' % (k, v))
     if 'exit' in expect and code != expect['exit']:
         bad.append('expected exit %d' % expect['exit'])
     elif 'exit' not in expect and code not in (0, 4):

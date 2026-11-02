@@ -5,6 +5,8 @@
  *   --select DLG:CTRL=N@s  pick item N of a list or combo box in DLG
  *   --waitlog TEXT@s     hold until the game's debug log prints a line with TEXT
  *   --move x,y@s  --click [c][s][a]+x,y@s  --key [c][s][a]+vk@s  --wait VA@s
+ *   --resolution WxH@s   F10's game resolution, for the next battle
+ *   --hd-scale N@s       F10's HD vehicles scale (2 or 3), from this thread as from the presenter's
  *   (c, s, a: held down with it: Ctrl, Shift, Alt; Ctrl+click is force-fire)
  *   --drag x1,y1,x2,y2@s   a band selection, button down at one corner, up at the other
  *   --rdrag x1,y1,x2,y2@s  the same with the right button, held 1 s at the far end:
@@ -30,6 +32,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "input.h"
+#include "present.h"
+#include "hdvox.h"
 
 typedef struct { char kind; int x, y, mods; double t; char text[64]; } ev_t;
 #define MAX_EV 256
@@ -75,6 +79,12 @@ int input_arg(int argc, char** argv, int i) {
         /* --wait VA@s: hold the script until the dword at VA is nonzero. */
         if (sscanf(a, "%i@%lf", &e.x, &e.t) != 2) return 0;
         e.kind = 'w';
+    } else if (!strcmp(argv[i], "--hd-scale") && strchr(a, '@')) {   /* --hd-scale N alone is the host's */
+        if (sscanf(a, "%d@%lf", &e.x, &e.t) != 2) return 0;
+        e.kind = 'v';
+    } else if (!strcmp(argv[i], "--resolution")) {
+        if (sscanf(a, "%dx%d@%lf", &e.x, &e.y, &e.t) != 3) return 0;
+        e.kind = 'g';
     } else if (!strcmp(argv[i], "--key")) {
         const char* plus = strchr(a, '+');
         if (plus) {
@@ -449,6 +459,16 @@ static DWORD WINAPI script(LPVOID unused) {
             shift += (LONG)(GetTickCount() - w0);
             fprintf(stderr, "[input] %.1fs waited %.1fs for [0x%X] = %u\n", e->t,
                     (GetTickCount() - w0) / 1000.0, e->x, *(volatile uint32_t*)(uintptr_t)e->x);
+            continue;
+        }
+        if (e->kind == 'v') {
+            fprintf(stderr, "[input] %.1fs HD scale %d\n", e->t, e->x);
+            ra2_vox_set_scale(e->x);
+            continue;
+        }
+        if (e->kind == 'g') {
+            fprintf(stderr, "[input] %.1fs resolution %dx%d\n", e->t, e->x, e->y);
+            present_set_game_resolution(e->x, e->y);
             continue;
         }
         if (e->kind == 'k') {

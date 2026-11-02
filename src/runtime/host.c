@@ -530,7 +530,9 @@ long host_frame_count(void) {
 }
 
 static void count_frame(void) {
+    extern volatile LONG ra2_primary_blits;       /* hdvox.c: the menus are drawing */
     LONG n = InterlockedIncrement(&g_frames);
+    InterlockedIncrement(&ra2_primary_blits);
     if (n == 1 || n == 10 || n == 100 || n % 1000 == 0)
         fprintf(stderr, "[headless] frame %ld blitted to the primary\n", n);
 }
@@ -765,7 +767,7 @@ int host_frame_hd(uint32_t* out, int maxw, int maxh, int* pw, int* ph) {
     if (!snapshot(&w, &h, &bpp, &pitch)) { LeaveCriticalSection(&g_snap_lock); return -1; }
     int N = ra2_vox_scale();
     int ok = bpp == 16 && N * w <= maxw && N * h <= maxh;
-    if (ok) hdvox_compose(g_snap, pitch, w, h, out);
+    if (ok) ok = hdvox_compose(g_snap, pitch, w, h, out, N);   /* 0: the scale changed just now */
     LeaveCriticalSection(&g_snap_lock);
     *pw = w;
     *ph = h;
@@ -796,7 +798,7 @@ int host_frame_overlay(uint32_t* base, uint32_t* ov, int maxw, int maxh, int* pw
                 row[x] = (r << 3 | r >> 2) << 16 | (g << 2 | g >> 4) << 8 | (b << 3 | b >> 2);
             }
         }
-        N = hdvox_overlay(g_snap, pitch, w, h, ov, dx, dy, dw, dh);   /* display scale: Nx, or 1 if AA */
+        N = hdvox_overlay(g_snap, pitch, w, h, ov, N, dx, dy, dw, dh);   /* display scale: Nx, or 1 if AA */
     }
     LeaveCriticalSection(&g_snap_lock);
     *pw = w;
@@ -809,16 +811,20 @@ int host_frame_overlay(uint32_t* base, uint32_t* ov, int maxw, int maxh, int* pw
  * that showed the units at 1x (tools/playtest.py hd-scroll). */
 static DWORD WINAPI hd_probe(LPVOID unused) {
     uint32_t* px = (uint32_t*)malloc((size_t)4096 * 2160 * 4);
+    /* RA2_HDVOX_CHECK: the overlay path too, which counts what it leaves
+     * outside the records (hdvox.c, playtest hd-rescale) */
+    uint32_t* ov = getenv("RA2_HDVOX_CHECK") ? (uint32_t*)malloc((size_t)4096 * 2160 * 4) : NULL;
     long seen = -1;
     (void)unused;
     if (!px) return 0;
     for (;;) {
-        int w, h;
+        int w, h, dx, dy, dw, dh;
         Sleep(16);
         long n = host_frame_count();
         if (n == seen) continue;
         seen = n;
         host_frame_hd(px, 4096, 2160, &w, &h);
+        if (ov) host_frame_overlay(px, ov, 4096, 2160, &w, &h, &dx, &dy, &dw, &dh);
     }
 }
 
@@ -1341,9 +1347,9 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--callbacks")) native32_trace_callbacks = 1;
         else {
             printf("usage: ra2 [--run] [--headless | --classic | [--fullscreen] [--scale sharp|smooth|crt|nearest|integer]] [--record out.mp4] [--frames N] [--exe game\\" RA2_EXE_NAME "] [--game game] [--mod NAME|none]\n"
-                   "           [--press DLG:CTRL@s] [--select DLG:CTRL=N@s] [--waitlog TEXT@s] [--move|--click x,y@s] [--key [c][s][a]+vk@s] [--wait VA@s]\n"
+                   "           [--press DLG:CTRL@s] [--select DLG:CTRL=N@s] [--waitlog TEXT@s] [--move|--click x,y@s] [--key [c][s][a]+vk@s] [--wait VA@s] [--resolution WxH@s]\n"
                    "           [--watchdog S] [--probe VA] [--debuglog] [--original] [--native-trace] [--callbacks]\n"
-                   "           [--hd-voxels] [--hd-scale 2|3] [--hd-voxels-dump DIR] [--mute] [--args FILE]\n");
+                   "           [--hd-voxels] [--hd-scale 2|3] [--hd-scale N@s] [--hd-voxels-dump DIR] [--mute] [--args FILE]\n");
             recomp_trace_help();
             return argv[i][1] == 'h' || argv[i][2] == 'h' ? 0 : 1;
         }
