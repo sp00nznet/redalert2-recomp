@@ -65,8 +65,93 @@ A `--scale` or `--fullscreen` on the command line wins over the file.
   (`0x00A8EB60` +0x24/+0x28, the object the settings reader is called on at
   `0x0052C630`), because the game saves its own options on exit and would put
   the old size back. 3840x2160 needs the sidebar fix in [hires.md](hires.md).
+- **UI scale** (*Off*, *2x*, *3x*; `uiscale=1|2|3`) draws the sidebar, radar,
+  build icons and the bar under the battlefield two or three times larger
+  while the battlefield stays 1:1,
+  for large screens where the 168-pixel sidebar is tiny. It applies from the
+  next battle, and only where the sidebar keeps the 600 lines it has at
+  800x600: 2x from a game resolution 1200 lines tall, 3x from 1800. See
+  [UI scale](#ui-scale) below.
+- **Zoom, the battlefield** (*1x*, *1.5x*, *2x*) makes the battlefield
+  larger on your screen. The UI can't stay at its native size while the
+  battlefield zooms (the art can't be drawn smaller), so a zoom is a game
+  resolution of the screen's size divided by the zoom (rounded down to 8
+  pixels, at least 800x600), which the presenter scales back up to the
+  screen: on a 3440x1440 screen 1.5x is 2288x960 and 2x is 1720x720. The
+  sidebar grows with the battlefield, so 1.5x and 2x turn the UI scale off
+  and the sidebar is never more than 2x; 1x is the screen's own size, with
+  the UI scale's sidebar if one is on. It applies from the next battle, like
+  *Game resolution*, and each preset shows the size it picks (greyed where
+  that is below 800x600 or above 4096x2160). The screen is the monitor the
+  window is on, also when windowed. The menu writes the same
+  `[Video] ScreenWidth`/`ScreenHeight` and options as *Game resolution*.
 - While the menu is open the picture holds still (the menu runs its own
   message loop on the presenter's thread); the game itself keeps running.
+
+## UI scale
+
+The art stays at its native size at any resolution, so at 3440x1440 the
+sidebar is a 168-pixel strip down the right edge and its build icons are
+small. A larger sidebar needs room the game doesn't lay out: the strip is the
+screen's height, and twice as tall it would not fit. So the game lays the
+sidebar out shorter, and the presenter draws it larger.
+
+- **The layout.** The sidebar sets its rect once per battle at `0x006A5130`
+  (Red Alert 2: `0x0067B910`): below the 158-line radar, 168 wide, down to the
+  bottom of the screen. Its rows of build icons, its buttons and its bottom
+  piece all follow from that height. The lift asks the host for the height
+  (`run_lift.py` `UI_SCALE_SITES`, `ra2_ui_sidebar_h` in `present.c`), and
+  at scale *s* the host answers `screen / s - 158`: the whole sidebar is in
+  the top 1/*s* of its strip. At 3272x1440 and 2x that is 562 lines of the
+  1282 it would have. The rest of the strip is left out of the picture.
+- **The bar.** The bar under the battlefield (the Options and Diplomacy
+  tabs) is the bottom 32 lines left of the sidebar, laid out from the
+  screen's height (`0x0072FE98`, Red Alert 2 `0x006F4ECB`). The tactical view
+  is the screen less the sidebar and that bar (`0x0072AD20`, `0x0072AD90`;
+  Red Alert 2 `0x006F1F30`). The lift asks the host for the view's height
+  (`UI_VIEW_SITES`, `ra2_ui_view_h`), and at scale *s* it is
+  `32 * (s - 1)` lines shorter: 1376 of 1408 at 3272x1440 and 2x. The bar
+  stays where the game draws it, and the room above it is left to the
+  presenter.
+- **The picture.** `ui_compose` copies the battlefield 1:1 and the top 1/*s*
+  of the strip *s* times larger beside it, nearest neighbour: a frame
+  `168 * (s - 1)` pixels wider than the game's. Picking a resolution from the
+  menu with a UI scale on sets the game that much narrower (3272x1440 for
+  3440x1440 at 2x), so the picture is the screen's size and the battlefield
+  stays sharp. Switching the scale keeps the size on screen the same way.
+  The bottom `32 * s` lines left of the strip are the bar's left 1/*s*, *s*
+  times larger; the tabs are at its left end, and what is right of
+  `base / s` (the bar's end piece) is left out.
+- **When.** Only in a battle (the game drawing its own cursor), at the height
+  the sidebar was laid out for, with no menu band cut. A battle's menus and
+  Red Alert 2's main menus at the game's size are shown as the game drew
+  them. The scale a battle was laid out with is kept apart from the setting,
+  which applies from the next battle.
+- **Input.** A point in the scaled strip maps back to `base + (x - base) / s`,
+  `y / s`, and one in the scaled bar to `x / s`, `h - 32 + (y - (h - 32 s)) / s`.
+  The right edge of the screen is still the game's right edge, so
+  edge scrolling works.
+- **Limits.** The units' HD overlay is not drawn while the picture is
+  composed (units at 1x): HD vehicles are only on up to 2048x1080, below 2x's
+  1200 lines except at 1920x1200 and 2048x1152. Text such as messages and
+  tooltips stays at 1x. The view's height takes the scale of the battle laid
+  out at that height, else the setting: Yuri's Revenge sets its view after
+  the sidebar, each battle; Red Alert 2 sets it once, when it starts in the
+  INI's mode, so there a change of UI scale reaches the view after a restart.
+- **Text over the battlefield.** Messages (`MessageListClass`, `0x005D3A60`),
+  tooltips (`CCToolTip`, `0x007775C0`) and the superweapon timers are drawn
+  into the 1:1 battlefield, so they stay small. A larger font is not a way
+  out: both games ship one, `GAME.FNT`, loaded once (`0x00434AD0`) into a
+  single BitFont at `0x0089C4D0` that every text uses (240 reads in Yuri's
+  Revenge), the sidebar's and the menus' too. Drawing its glyphs 2x would
+  grow all of them, and the line heights and boxes that are laid out from
+  the font's metrics with them. Scaling only this text would take drawing it
+  to a surface of its own and composing that larger, as the sidebar is; that
+  is left for later.
+- **Headless.** `RA2_UI_SCALE=2` sets the scale without a `ra2.ini`;
+  `tools/playtest.py ui-scale-2x` runs a skirmish with the 2x layout and
+  checks the sidebar's and the view's log lines and the game's own
+  `Set_View_Dimensions(0,0,3104,1376)`.
 
 ## How it fits together
 
