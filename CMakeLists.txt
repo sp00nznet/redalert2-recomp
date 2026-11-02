@@ -100,6 +100,7 @@ endif()
 
 add_executable(ra2
   src/runtime/host.c
+  src/runtime/audio_wasapi.c
   src/runtime/input.c
   src/runtime/mods.c
   src/runtime/oracle.c
@@ -134,7 +135,7 @@ if(MSVC_VERSION GREATER_EQUAL 1950)
   string(APPEND GEN_OPT ";/d2SSAOptimizer-")
 endif()
 set_source_files_properties(${GEN_SOURCES} PROPERTIES COMPILE_OPTIONS "/w;${GEN_OPT}")
-set_source_files_properties(src/runtime/host.c src/runtime/input.c src/runtime/mods.c src/runtime/oracle.c src/runtime/present.c src/runtime/hdvox.c src/runtime/queuefive.c PROPERTIES COMPILE_OPTIONS "/W3")
+set_source_files_properties(src/runtime/host.c src/runtime/audio_wasapi.c src/runtime/input.c src/runtime/mods.c src/runtime/oracle.c src/runtime/present.c src/runtime/hdvox.c src/runtime/queuefive.c PROPERTIES COMPILE_OPTIONS "/W3")
 target_link_libraries(ra2 PRIVATE user32 gdi32 kernel32 ole32 uuid ddraw dxguid winmm d3d11 dxgi shell32)
 
 option(RA2_TRACE "record a ring buffer of lifted function entries" OFF)
