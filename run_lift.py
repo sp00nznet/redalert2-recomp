@@ -477,10 +477,27 @@ UI_SCALE_SITES = {
 }
 
 
+#
+# The bar under the battlefield (the Options and Diplomacy tabs, 32 lines) is
+# laid out at the bottom of the screen from its height (0x0072FE98, game.exe
+# 0x006F4ECB: y = h - 32), and the tactical view is the screen less the
+# sidebar and that bar (0x0072AD20 and 0x0072AD90, game.exe 0x006F1F30:
+# h - 32). ra2_ui_view_h() takes another 32 * (s - 1) lines off the view, so
+# the presenter can draw the bar s times taller in them; the bar itself stays
+# where the game puts it. The patch goes after the sub, before the store.
+UI_VIEW_SITES = {
+    'gamemd': (0x0072AD6D, 0x0072ADC6),
+    'game': (0x006F1F7D,),
+}
+
+
 def ui_scale_patches(target):
-    return {va: '{ extern int32_t ra2_ui_sidebar_h(int32_t); eax = (uint32_t)ra2_ui_sidebar_h((int32_t)eax); } '
-                '/* remaster: UI scale, the sidebar laid out in the top of its strip (run_lift.py UI_SCALE_SITES) */'
-            for va in UI_SCALE_SITES[target]}
+    return {**{va: '{ extern int32_t ra2_ui_sidebar_h(int32_t); eax = (uint32_t)ra2_ui_sidebar_h((int32_t)eax); } '
+                   '/* remaster: UI scale, the sidebar laid out in the top of its strip (run_lift.py UI_SCALE_SITES) */'
+               for va in UI_SCALE_SITES[target]},
+            **{va: '{ extern int32_t ra2_ui_view_h(int32_t); esi = (uint32_t)ra2_ui_view_h((int32_t)esi); } '
+                   '/* remaster: UI scale, room for the bar s times taller (run_lift.py UI_VIEW_SITES) */'
+               for va in UI_VIEW_SITES[target]}}
 
 
 def apply_patches(body, patches):

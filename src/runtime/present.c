@@ -501,9 +501,32 @@ static uint32_t* g_ui_buf;
 
 static int ui_fits(int h, int s) { return s > 1 && h / s >= UI_MIN_H; }
 
-int32_t ra2_ui_sidebar_h(int32_t h) {
+/* The bar under the battlefield (the Options and Diplomacy tabs) is the
+ * bottom 32 lines, left of the sidebar. The lift asks ra2_ui_view_h() for the
+ * tactical view's height (run_lift.py UI_VIEW_SITES): in a UI-scaled battle
+ * it is 32 * (s - 1) lines shorter, and ui_compose draws the left 1/s of the
+ * bar s times larger in the room that frees. The scale is the battle's where
+ * its sidebar was laid out at this height, else the setting's: Yuri's Revenge
+ * sets the view after the sidebar, Red Alert 2 once at start, before it. */
+#define UI_BAR_H 32
+static volatile LONG g_ui_view_logged;
+
+static int ui_setting(void) {
     const char* env = getenv("RA2_UI_SCALE");   /* headless (tools/playtest.py): no ra2.ini read */
-    int s = env && (atoi(env) == 2 || atoi(env) == 3) ? atoi(env) : (int)g_ui_scale, screen = h + UI_RADAR_H;
+    return env && (atoi(env) == 2 || atoi(env) == 3) ? atoi(env) : (int)g_ui_scale;
+}
+
+int32_t ra2_ui_view_h(int32_t h) {
+    int screen = h + UI_BAR_H, s = screen == g_ui_live_h ? (int)g_ui_live : ui_setting();
+    if (!ui_fits(screen, s)) return h;
+    if (InterlockedExchange(&g_ui_view_logged, screen * 4 + s) != screen * 4 + s)   /* called each frame */
+        fprintf(stderr, "[present] UI scale %dx: view %d lines of %d, bar %d\n", s, h - UI_BAR_H * (s - 1), h,
+                UI_BAR_H * s);
+    return h - UI_BAR_H * (s - 1);
+}
+
+int32_t ra2_ui_sidebar_h(int32_t h) {
+    int s = ui_setting(), screen = h + UI_RADAR_H;
     InterlockedExchange(&g_ui_live_h, screen);
     if (!ui_fits(screen, s)) { InterlockedExchange(&g_ui_live, 1); return h; }
     InterlockedExchange(&g_ui_live, s);
@@ -511,11 +534,11 @@ int32_t ra2_ui_sidebar_h(int32_t h) {
     return screen / s - UI_RADAR_H;
 }
 
-/* The w x h picture with its sidebar strip's top 1/s drawn s times larger, in
- * g_ui_buf; the new width, or w (and the picture unchanged) where it doesn't
- * apply. */
+/* The w x h picture with its sidebar strip's top 1/s drawn s times larger, and
+ * the bar's left 1/s s times larger in the bottom 32 * s lines, in g_ui_buf;
+ * the new width, or w (and the picture unchanged) where it doesn't apply. */
 static int ui_compose(const uint32_t* f, int w, int h, const uint32_t** out) {
-    int s = (int)g_ui_live, base = w - SIDEBAR_W, ow = base + SIDEBAR_W * s;
+    int s = (int)g_ui_live, base = w - SIDEBAR_W, ow = base + SIDEBAR_W * s, bar = h - UI_BAR_H * s;
     *out = f;
     InterlockedExchange(&g_ui_drawn, 1);
     if (s < 2 || h != g_ui_live_h || g_cut_w || host_menu_cursor() || base <= 0 || ow > 4096) return w;
@@ -523,7 +546,12 @@ static int ui_compose(const uint32_t* f, int w, int h, const uint32_t** out) {
     for (int y = 0; y < h; y++) {
         uint32_t* row = g_ui_buf + (size_t)y * ow;
         const uint32_t* src = f + (size_t)(y / s) * w + base;
-        memcpy(row, f + (size_t)y * w, (size_t)base * 4);
+        if (y < bar)
+            memcpy(row, f + (size_t)y * w, (size_t)base * 4);
+        else {                               /* the bar: its source rows are the bottom 32 */
+            const uint32_t* b = f + (size_t)(h - UI_BAR_H + (y - bar) / s) * w;
+            for (int x = 0; x < base; x++) row[x] = b[x / s];
+        }
         for (int x = 0; x < SIDEBAR_W * s; x++) row[base + x] = src[x / s];
     }
     *out = g_ui_buf;
@@ -532,8 +560,9 @@ static int ui_compose(const uint32_t* f, int w, int h, const uint32_t** out) {
 }
 
 static POINT ui_to_game(POINT p) {
-    int s = (int)g_ui_drawn, base = (int)g_gw - SIDEBAR_W * s;
+    int s = (int)g_ui_drawn, base = (int)g_gw - SIDEBAR_W * s, bar = (int)g_gh - UI_BAR_H * s;
     if (s > 1 && p.x >= base) p.x = base + (p.x - base) / s, p.y /= s;
+    else if (s > 1 && p.y >= bar) p.x /= s, p.y = (int)g_gh - UI_BAR_H + (p.y - bar) / s;
     return p;
 }
 

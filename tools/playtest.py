@@ -401,13 +401,15 @@ for w, h in RES:
          .waitlog(INGAME).move(w // 2 - 80, h // 2, after=2).key('0x48', after=10),
          180, ingame=True, size=(w, h), ini=video)
 # UI scale 2x (docs/presenter.md): at 3440x1440 less the 168 lines the 2x
-# sidebar adds, the sidebar laid out in the top half of its strip. Headless
+# sidebar adds, the sidebar laid out in the top half of its strip, and the
+# view 32 lines shorter for the bar under it drawn 2x (1440 - 64). Headless
 # there is no presenter to compose it; the case shows the layout and a
 # battle that runs with it.
 case('ui-scale-2x', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
      .waitlog(INGAME).move(1556, 720, after=2).key('0x48', after=10),
      180, ingame=True, size=(3272, 1440), ini={'Video': {'ScreenWidth': 3272, 'ScreenHeight': 1440}},
-     env={'RA2_UI_SCALE': '2'}, log={'[present] UI scale 2x': 1})
+     env={'RA2_UI_SCALE': '2'}, log={'[present] UI scale 2x: sidebar': 1, '[present] UI scale 2x: view': 1,
+                                     'Set_View_Dimensions(0,0,3104,1376)': 1})
 case('res-campaign-1920x1080', SP().press(SINGLE, 'NewCampaign', CAMPAIGN).press(CAMPAIGN, 1770)
      .waitlog(INGAME).move(880, 540, after=2).key('0x48', after=10), 300, ingame=True, alive=True,
      size=(1920, 1080), ini={'Video': {'ScreenWidth': 1920, 'ScreenHeight': 1080}})
