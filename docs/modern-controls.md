@@ -2,12 +2,14 @@
 
 The F10 menu's **Controls** entry offers **Classic** and **Modern** in both
 Red Alert 2 and Yuri's Revenge. Classic, the default, keeps the original games'
-controls. Modern brings two changes:
+controls. Modern brings three changes:
 
 - **Mouse**: left-click selects, right-click orders, with modern selection
   shortcuts.
 - **Queue Five** (`RA2-QOL-001`): Shift-click a build icon in the sidebar to
   queue five of that item.
+- **Sidebar grid hotkeys**: Alt and a key of a 3x4 grid click the cameo in
+  that sidebar slot.
 
 The presenter saves the choice in `ra2.ini` as `controls=classic` or
 `controls=modern`. Neither mode changes `rules.ini` or `rulesmd.ini`. Each
@@ -208,6 +210,69 @@ different addresses:
 | Red Alert 2 (`game.exe`) | `0x0068119E`, `0x006813EF` | `0x00A32338` | `0x00A32340` | `0x00A32344` | `0x00A35AC4` |
 
 These addresses are for the supported shipping executables.
+
+## Sidebar grid hotkeys
+
+Hold **Alt** and press a key of a 3x4 grid to do what a click on the cameo in
+that sidebar slot does: start building it, queue another, or, once it is
+ready, pick it up to place. **Alt+Shift** and the key is a right click: hold,
+then cancel. The default grid is
+
+```
+Q W E R
+A S D F
+Z X C V
+```
+
+and it covers the active tab's visible slots in reading order. The sidebar
+shows two cameos a row, so `Q W` are the first row, `E R` the second, and so
+on down to `C V` on the sixth. The game's own tab commands (`StructureTab`,
+`DefenseTab`, `InfantryTab` and `UnitTab` in the keyboard options) switch
+the tab the grid works on.
+
+The game binds several of these letters already (and Modern controls' attack
+move takes `A`), so the grid needs a way to tell its keys from the game's.
+`ra2.ini` has the choice:
+
+| Setting | Meaning |
+| --- | --- |
+| `[present]` `gridkeys=alt` | The default: grid keys only while Alt is held. Plain letters stay the game's. |
+| `gridkeys=hover` | Grid keys, without Alt, while the pointer is over the sidebar's cameos. |
+| `gridkeys=off` | No grid keys. |
+| `[keys]` `grid=QWERASDFZXCV` | The twelve keys, row by row. |
+
+Grid keys are part of Modern controls: with Classic controls every key stays
+the game's. Ctrl with a grid key is always the game's. A key held down clicks
+once; its auto-repeat is swallowed.
+
+### Implementation notes
+
+The game's window procedure hands every message to the in-game message hook
+(`0x006930A0` in Yuri's Revenge, `0x0066A400` in Red Alert 2) by address, and
+reads it back afterwards. `grid_keys_patches` in `run_lift.py` calls
+`ra2_gridkey_message` (`src/runtime/gridkeys.c`) once that hook has passed its
+in-game checks. For a grid key it posts the left (or right) button down and up
+to the game's window at the centre of the slot's cameo button, so the game's
+keyboard handler queues an ordinary click at that point and the sidebar's
+gadget handles it, and it changes the key's message to `WM_NULL`.
+
+The cameo buttons are the sidebar's static array of 240 (four sets of 60,
+`0x38` bytes each). A slot is visible when its button is in the gadget list;
+the active tab's strip names the set. The buttons are sorted by position, so
+the grid follows the screen whatever the strip's internal order.
+
+| Role | Yuri's Revenge | Red Alert 2 |
+| --- | --- | --- |
+| Patch site (in-game message hook, `eax` = `&msg`) | `0x006930F5` | `0x0066A455` |
+| Map object (`MouseClass`, with the sidebar) | `0x0087F7E8` | `0x008324E0` |
+| Active tab (map `+`) | `+0x539C` | `+0x4ED8` |
+| Tabs (map `+`, size; the strip's button set at) | `+0x1544`, `0xF94`; `+0x38` | `+0x1540`, `0x4CC`; `+0x34` |
+| Cameo buttons | `0x00B07E80` | `0x00AB9740` |
+
+Headless playtests have no presenter and so no Modern controls setting:
+`--gridkeys alt|hover|off` turns grid keys on in that mode without it. The
+`skirmish-gridkeys` playtest presses Alt+Q twice with the cursor on the
+battlefield, and the game's log shows the power plant produced and placed.
 
 ## Manual verification
 

@@ -38,6 +38,7 @@ static int g_last_dialog;             /* resource ID of the last RT_DIALOG looke
 
 static DWORD g_watchdog_s;
 unsigned ra2_clip_rounds;           /* the line clipper's round cap (run_lift.py clip_line_patches) */
+int ra2_gridkeys_arg(const char* mode);   /* gridkeys.c: --gridkeys alt|hover|off */
 static int   g_original;            /* --original: run the shipping code (oracle.c) */
 static int   g_headless;
 /* How the game is shown. The presenter (present.c) is the default: the display
@@ -1315,6 +1316,7 @@ int main(int argc, char** argv) {
         if (!strcmp(argv[i], "--run")) run = 1;
         else if (!strcmp(argv[i], "--headless")) g_headless = 1;
         else if (!strcmp(argv[i], "--classic")) g_classic = 1;
+        else if (!strcmp(argv[i], "--gridkeys") && i + 1 < argc && ra2_gridkeys_arg(argv[i + 1])) i++;
         else if (!strcmp(argv[i], "--fullscreen")) g_fullscreen = 1;
         else if (!strcmp(argv[i], "--scale") && i + 1 < argc && present_mode_from_name(argv[i + 1]) >= 0)
             g_scale_mode = present_mode_from_name(argv[++i]);

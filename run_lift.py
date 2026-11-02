@@ -420,6 +420,32 @@ def queue_five_patches(target):
     return {site: after_production_event() for site in t['sites']}
 
 
+# Sidebar grid hotkeys (Modern controls, docs/modern-controls.md). The in-game
+# message hook (0x006930A0 in Yuri's Revenge, 0x0066A400 in Red Alert 2) gets
+# every message's hwnd and the addresses of msg, wParam and lParam from the
+# window procedure, which reads msg again after it returns. Here its in-game
+# checks have passed and eax = &msg. The host turns Alt + a grid key into the
+# click a player would make on that sidebar slot's cameo, and the key into
+# WM_NULL, which the keyboard handler ignores (src/runtime/gridkeys.c). The
+# rest locates the sidebar for the host: the map object (its SidebarClass part
+# holds the active tab and the four tabs' strips), each strip's button-set
+# index, and the static cameo buttons (240 of 0x38 bytes, four sets of 60;
+# 0x006A4DC0 / 0x0067B660 build them).
+GRID_KEYS_TARGETS = {
+    'gamemd': {'site': 0x006930F5, 'map': 0x0087F7E8, 'active_tab': 0x539C, 'tabs': 0x1544,
+               'tab_size': 0xF94, 'tab_set': 0x38, 'buttons': 0x00B07E80},
+    'game': {'site': 0x0066A455, 'map': 0x008324E0, 'active_tab': 0x4ED8, 'tabs': 0x1540,
+             'tab_size': 0x4CC, 'tab_set': 0x34, 'buttons': 0x00AB9740},
+}
+
+
+def grid_keys_patches(target):
+    return {GRID_KEYS_TARGETS[target]['site']: (
+        '{ extern void ra2_gridkey_message(uint32_t, uint32_t, uint32_t, uint32_t); '
+        'ra2_gridkey_message(MEM32(esp + 0x28), eax, MEM32(esp + 0x30), MEM32(esp + 0x34)); } '
+        '/* sidebar grid hotkeys (Modern controls) */')}
+
+
 # The Cohen-Sutherland line clipper (game 0x00775620, gamemd 0x007BC2B0) clips
 # the outside point to an edge, recomputing the other coordinate from the point
 # itself, and loops until both outcodes are clear or share a bit. A line through
@@ -498,6 +524,7 @@ def targets():
                        title="Yuri's Revenge", game_frame=0x00A8ED84, stamp=0x3BDF544E,
                        patches=lambda code, cs: {**sidebar_rows_patches(code, cs), **HD_VOXEL_PATCHES,
                                                  **modern_controls_patches('gamemd'), **queue_five_patches('gamemd'),
+                                                 **grid_keys_patches('gamemd'),
                                                  **clip_line_patches('gamemd'), **launcher_patches('gamemd')}),
         'game': dict(exe=os.path.join(_HERE, 'game', 'game.exe'),
                      catalog=os.path.join(_HERE, 'work', 'game', 'functions.json'),
@@ -513,6 +540,7 @@ def targets():
                                                                      (0x0083962C, 0x00ABCD64)),
                                                **HD_VOXEL_PATCHES_GAME,
                                                **modern_controls_patches('game'), **queue_five_patches('game'),
+                                               **grid_keys_patches('game'),
                                                **clip_line_patches('game'), **launcher_patches('game')}),
     }
 
@@ -538,6 +566,11 @@ def write_target_header(out, name, t):
         for key, macro in (('count', 'RA2_QUEUE_FIVE_COUNT_VA'), ('index', 'RA2_QUEUE_FIVE_INDEX_VA'),
                            ('ring', 'RA2_QUEUE_FIVE_RING_VA'), ('stamps', 'RA2_QUEUE_FIVE_STAMPS_VA')):
             f.write('#define %s 0x%08Xu\n' % (macro, queue[key]))
+        grid = GRID_KEYS_TARGETS[name]
+        for key, macro in (('map', 'RA2_GRID_MAP_VA'), ('active_tab', 'RA2_GRID_ACTIVE_TAB'), ('tabs', 'RA2_GRID_TABS'),
+                           ('tab_size', 'RA2_GRID_TAB_SIZE'), ('tab_set', 'RA2_GRID_TAB_SET'),
+                           ('buttons', 'RA2_GRID_BUTTONS_VA')):
+            f.write('#define %s 0x%08Xu\n' % (macro, grid[key]))
 
 
 def exe_stamp(path):

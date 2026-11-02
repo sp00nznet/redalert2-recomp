@@ -354,6 +354,21 @@ case('skirmish-build', place(place(
     # (a CnCNet install had 3440x1440, and every click missed the sidebar).
     ini={'Video': {'ScreenWidth': 640, 'ScreenHeight': 480}})
 
+# Sidebar grid hotkeys (docs/modern-controls.md): the same start, then Alt+Q
+# with the cursor on the battlefield. The first press builds the first
+# cameo's item (a power plant), the second, once it is ready, picks it up as a
+# click on the cameo would, and the clicks around the yard place it.
+gridkeys = place(
+    SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
+    .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10)
+    .click(236, 213, after=2).key('0x44', after=1).waitlog('Adding event DEPLOY')
+    .move(236, 240, after=8).key('a+0x51', after=1)                     # Alt+Q: build
+    .key('a+0x51', after=28))                                           # ready: Alt+Q picks it up
+gridkeys.args += ['--gridkeys', 'alt']     # headless has no presenter, so no Modern controls setting
+case('skirmish-gridkeys', gridkeys, 150, ingame=True,
+     log={'[gridkeys] Alt+Q -> tab 0 slot 0, left click': 2, 'Adding event PRODUCE': 1, 'Adding event PLACE': 1},
+     ini={'Video': {'ScreenWidth': 640, 'ScreenHeight': 480}})
+
 case('skirmish-loop', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
      .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10)
      .press(0x108, 'Continue', MAIN), 720, ingame=True)
