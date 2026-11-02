@@ -412,10 +412,12 @@ s = (SP().press(SINGLE, 'NewCampaign', CAMPAIGN).press(CAMPAIGN, 1770)
      .waitlog(INGAME).move(1640, 720, after=2).key('0x48', after=10))
 for vk in ['0x25'] * 3 + ['0x27'] * 6 + ['0x26'] * 3 + ['0x28'] * 6:
     s = s.key(vk, after=1)
-# The mission's Psychic Dominator timer was drawn again on every scroll, a
-# column of copies down the left of the sidebar: timer_once.
-case('res-campaign-3440x1440', s, 300, ingame=True, alive=True, size=(3440, 1440), timer_once=True,
-     ini={'Video': {'ScreenWidth': 3440, 'ScreenHeight': 1440}})
+# Yuri's Revenge's mission has a Psychic Dominator timer, drawn again on every
+# scroll, a column of copies down the left of the sidebar: timer_once. Red
+# Alert 2's has no timer, and starts in the INI's mode, so its menus are full
+# size too.
+case('res-campaign-3440x1440', s, 300, ingame=True, alive=True, size=(3440, 1440),
+     timer_once=TARGET == 'gamemd', ini={'Video': {'ScreenWidth': 3440, 'ScreenHeight': 1440}})
 
 
 def farm(d, ini=None):
