@@ -72,6 +72,19 @@ A `--scale` or `--fullscreen` on the command line wins over the file.
   next battle, and only where the sidebar keeps the 600 lines it has at
   800x600: 2x from a game resolution 1200 lines tall, 3x from 1800. See
   [UI scale](#ui-scale) below.
+- **Zoom, the battlefield** (*1x*, *1.5x*, *2x*) makes the battlefield
+  larger on your screen. The UI can't stay at its native size while the
+  battlefield zooms (the art can't be drawn smaller), so a zoom is a game
+  resolution of the screen's size divided by the zoom (rounded down to 8
+  pixels, at least 800x600), which the presenter scales back up to the
+  screen: on a 3440x1440 screen 1.5x is 2288x960 and 2x is 1720x720. The
+  sidebar grows with the battlefield, so 1.5x and 2x turn the UI scale off
+  and the sidebar is never more than 2x; 1x is the screen's own size, with
+  the UI scale's sidebar if one is on. It applies from the next battle, like
+  *Game resolution*, and each preset shows the size it picks (greyed where
+  that is below 800x600 or above 4096x2160). The screen is the monitor the
+  window is on, also when windowed. The menu writes the same
+  `[Video] ScreenWidth`/`ScreenHeight` and options as *Game resolution*.
 - While the menu is open the picture holds still (the menu runs its own
   message loop on the presenter's thread); the game itself keeps running.
 
