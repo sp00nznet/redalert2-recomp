@@ -378,7 +378,9 @@ for side, emblem in [('allied', 1770), ('soviet', 1772)]:
 # [hit] is the host's log of the damage the player's side deals, with the
 # attacker's mission: an attack-move stays mission 2 (Move) between fights, so
 # a hit with mission 2 is one on the way; a plain move never fires on the way.
-AM_LEGS = [((639, 0), (380, 330)), ((0, 479), (120, 380))]   # (screen edge, click)
+# The top-right click is open ground whichever base is there: (380, 330) hit
+# our own infantry when the top-right base was ours, and selected one GI.
+AM_LEGS = [((639, 0), (200, 110)), ((0, 479), (120, 380))]   # (screen edge, click)
 
 
 def attackmove(key):
