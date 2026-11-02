@@ -209,6 +209,8 @@ def S():
 #   expect 'ini':     RA2MD.INI values for the case's game folder, {section: {key: value}}
 #   expect 'size':    the picture in game is this (w, h)
 #   expect 'hd':      HD voxels on, and no 2x picture showed the units at 1x
+#   expect 'log':     {text: n}, lines the game or host prints at least n times
+#   expect 'nolog':   [text], lines it must never print
 CASES = {}
 
 
@@ -366,6 +368,46 @@ for side, emblem in [('allied', 1770), ('soviet', 1772)]:
          300, ingame=True, alive=True)
 
 
+# Attack-move in Modern controls (docs/modern-controls.md). Deploy the MCV (an
+# MCV in the selection cannot attack-move, and the game refuses the lot) and
+# band-select the starting units. The map's two starts are in its top-right
+# and bottom-left corners, and the game picks which is ours, so the units go
+# twice: by the screen edge to the top-right corner, A and a click on open
+# ground there, then the same to the bottom-left. One of the two walks crosses
+# the computer player's base. The same script without A is the control.
+# [hit] is the host's log of the damage the player's side deals, with the
+# attacker's mission: an attack-move stays mission 2 (Move) between fights, so
+# a hit with mission 2 is one on the way; a plain move never fires on the way.
+AM_LEGS = [((639, 0), (380, 330)), ((0, 479), (120, 380))]   # (screen edge, click)
+
+
+def attackmove(key):
+    s = (SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
+         .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10)
+         .click(236, 213, after=2).key('0x44', after=1)
+         .drag(8, 8, 464, 440, after=15))
+    for k, (edge, dest) in enumerate(AM_LEGS):
+        s = s.move(*edge, after=150 if k else 1).move(*dest, after=40)
+        if key:
+            s = s.key('0x41', after=1)
+        s = s.click(*dest, after=1)
+    s.args += ['--controls', 'modern']
+    return s
+
+
+VGA = {'Video': {'ScreenWidth': 640, 'ScreenHeight': 480}}
+if TARGET == 'game':
+    # Red Alert 2's skirmish map has eight starts and puts the computer player
+    # at a random one: no enemy on a fixed path, so only the order is checked.
+    case('skirmish-attackmove', attackmove(True), 720, ingame=True,
+         log={'[modern] attack-move order': 1}, ini=VGA)
+else:
+    case('skirmish-attackmove', attackmove(True), 720, ingame=True,
+         log={'[modern] attack-move order': 1, 'attacker mission 2 (': 1}, ini=VGA)
+    case('skirmish-move', attackmove(False), 720, ingame=True,
+         nolog=['[modern] attack-move order', 'attacker mission 2 ('], ini=VGA)
+
+
 def set_ini(text, section, key, value):
     """RA2MD.INI with [section] key=value set, the section added if missing."""
     lines = text.split(b'\r\n') if b'\r\n' in text else text.split(b'\n')
@@ -511,6 +553,11 @@ def run(name, args, seconds, expect, every, original=False):
             bad.append('"%s" %d times, wanted %d' % (text, got, n))
         elif n:
             seen.append('%s x%d' % (text.split()[-1].lower(), got))
+    # nolog: lines the run must not print (a control case: [hit] in a plain move)
+    for text in expect.get('nolog', []):
+        got = sum(text in l for l in lines)
+        if got:
+            bad.append('"%s" %d times, wanted none' % (text, got))
     if 'exit' in expect and code != expect['exit']:
         bad.append('expected exit %d' % expect['exit'])
     elif 'exit' not in expect and code not in (0, 4):
