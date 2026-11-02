@@ -30,6 +30,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "input.h"
+#include "present.h"
 
 typedef struct { char kind; int x, y, mods; double t; char text[64]; } ev_t;
 #define MAX_EV 256
@@ -455,6 +456,8 @@ static DWORD WINAPI script(LPVOID unused) {
             static const int mvk[] = { VK_CONTROL, VK_SHIFT, VK_MENU };
             fprintf(stderr, "[input] %.1fs key %s%s%s0x%X\n", e->t, e->y & 1 ? "Ctrl-" : "",
                     e->y & 2 ? "Shift-" : "", e->y & 4 ? "Alt-" : "", e->x);
+            /* the presenter's keys in Modern controls (attack-move) */
+            if (!e->y && ra2_modern_key(e->x, 0)) continue;
             for (int m = 0; m < 3; m++)
                 if (e->y & 1 << m) PostMessageA(h, WM_KEYDOWN, mvk[m], 1);
             InterlockedExchange(&g_mods, e->y);

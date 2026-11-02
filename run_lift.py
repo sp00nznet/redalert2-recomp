@@ -251,6 +251,8 @@ MODERN_CONTROLS_TARGETS = {
         'selection_count': 0x00A8ECC8, 'selection_data': 0x00A8ECBC,
         'unit_vtable': 0x007F5C70, 'infantry_vtable': 0x007EB058,
         'aircraft_vtable': 0x007E22A4,
+        'attack_move_arm': 'sub_00731AF0', 'attack_move_flag': 0x00B0FE58,
+        'receive_damage': 0x005F5390, 'current_player': 0x00A83D4C, 'mission': 0xAC,
     },
     'game': {
         'message': 0x0066A467, 'radar': 0x0062FE33, 'radar_stack': 0x44,
@@ -266,6 +268,8 @@ MODERN_CONTROLS_TARGETS = {
         'selection_count': 0x00A40C70, 'selection_data': 0x00A40C64,
         'unit_vtable': 0x007ADDF8, 'infantry_vtable': 0x007A3540,
         'aircraft_vtable': 0x0079B12C,
+        'attack_move_arm': 'sub_006F6570', 'attack_move_flag': 0x00AC1330,
+        'receive_damage': 0x005D3D20, 'current_player': 0x00A35DB4,
     },
 }
 
@@ -301,11 +305,31 @@ def modern_controls_patches(target):
         # The game has already read the Windows message here. Route right
         # presses through left-button bookkeeping only when no active
         # placement/order mode needs its original right-up cancellation.
+        # First, on this thread, what the attack-move key asked: arm the
+        # game's own attack-move (the command bar button's routine, which also
+        # says "nothing selected" or "unsupported"), or cancel it.
         t['message']: (
+            '{ extern int ra2_modern_attack_move_request(void); '
+            'int _am = ra2_modern_attack_move_request(); '
+            'if (_am == 1) { uint32_t _am_a = eax, _am_c = ecx, _am_d = edx; '
+            'RECOMP_CALL(%s); RECOMP_FLAGS_IN(); eax = _am_a; ecx = _am_c; edx = _am_d; } '
+            'else if (_am == 2) MEM8(0x%08Xu) = 0; } '
             '{ extern uint32_t ra2_modern_mouse_message(uint32_t, int); '
             'int special = %s; '
             'eax = ra2_modern_mouse_message(eax, special); } '
-            '/* optional F10 Modern controls */') % special_expr,
+            '/* optional F10 Modern controls */') % (t['attack_move_arm'], t['attack_move_flag'], special_expr),
+        # A scripted run logs the damage the player's side deals, with the
+        # attacker's mission, which tells an attack-move that fought on the way
+        # (mission 29) from a plain move (2) (tools/playtest.py
+        # skirmish-attackmove). After `sub esp, 0x14` the attacker is the
+        # fourth argument and the attacking house the seventh.
+        t['receive_damage']: (
+            '{ extern void ra2_hit_logged(uint32_t, uint32_t, uint32_t, uint32_t); '
+            'ra2_hit_logged(ecx, MEM32(esp + 0x30), MEM32(0x%08Xu), %s); } '
+            '/* attack-move test aid */') % (
+                t['current_player'],
+                'MEM32(esp + 0x24) ? MEM32(MEM32(esp + 0x24) + 0x%Xu) : 0xFFFFFFFFu' % t['mission']
+                if t.get('mission') else '0xFFFFFFFFu'),
         # Keep the mapped radar flags in the stack argument as well as DL;
         # later branches in this handler read the argument again.
         t['radar']: (
@@ -535,6 +559,8 @@ def write_target_header(out, name, t):
                            ('infantry_vtable', 'RA2_MODERN_INFANTRY_VTABLE'),
                            ('aircraft_vtable', 'RA2_MODERN_AIRCRAFT_VTABLE')):
             f.write('#define %s 0x%08Xu\n' % (macro, modern[key]))
+        f.write('#define RA2_ATTACK_MOVE_FLAG_VA 0x%08Xu   /* armed by the attack-move button */\n'
+                % modern['attack_move_flag'])
         for key, macro in (('count', 'RA2_QUEUE_FIVE_COUNT_VA'), ('index', 'RA2_QUEUE_FIVE_INDEX_VA'),
                            ('ring', 'RA2_QUEUE_FIVE_RING_VA'), ('stamps', 'RA2_QUEUE_FIVE_STAMPS_VA')):
             f.write('#define %s 0x%08Xu\n' % (macro, queue[key]))

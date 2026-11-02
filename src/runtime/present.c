@@ -23,6 +23,7 @@
 #include <windowsx.h>
 #include <d3d11.h>
 #include <dxgi.h>
+#include <ctype.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -140,6 +141,10 @@ static int g_modern_right_drag;          /* native right-drag camera pan is acti
 static int g_modern_suppress_left_release;   /* the handoff release must not issue a click */
 static int g_modern_suppress_right_deselect; /* a pan release must not clear selection */
 static POINT g_modern_right_origin;      /* screen point of the right press */
+static volatile LONG g_controls_forced = -1;   /* --controls: wins over ra2.ini */
+static volatile LONG g_attack_move_vk = 'A';   /* [keys] attackmove= */
+static volatile LONG g_attack_move_request;    /* ATTACK_MOVE_ARM / _CANCEL, taken on the game thread */
+static int g_attack_move_eat_right;      /* a right press cancelled attack-move: its release too */
 static volatile LONG g_gw = 800, g_gh = 600;   /* the game's picture, last frame */
 static RECT g_dst;                       /* where it is drawn in the client area */
 static int g_cut_at, g_cut_w;            /* a menu's black band left out, in game x (cut_menu_band) */
@@ -149,6 +154,66 @@ static HWND g_capture_target;            /* the game window a held button went t
 static HWND g_present_hwnd;              /* this window, for present_real_mouse */
 #define WM_REAL_MOUSE (WM_APP + 0x10)    /* + (message - WM_MOUSEFIRST): lParam is a screen point */
 static POINT g_capture_off;              /* game point -> that window's client */
+
+/* ---- attack-move (docs/modern-controls.md) --------------------------------
+ * Both games have one: the order Yuri's Revenge's command bar button gives
+ * (UICmnds.cpp; 'attack_move_arm' in run_lift.py). Arming it sets a flag the
+ * game reads when the next click turns into an order, and a Move becomes
+ * mission AttackMove. Modern controls put it on a key; the arming itself runs
+ * on the game thread, from the battlefield mouse hook. */
+enum { ATTACK_MOVE_ARM = 1, ATTACK_MOVE_CANCEL = 2 };
+
+int ra2_modern_controls(void);
+
+static int attack_move_armed(void) {
+    return *(volatile uint8_t*)(uintptr_t)RA2_ATTACK_MOVE_FLAG_VA != 0;
+}
+
+/* ra2.ini [keys]: a letter or digit ("A"), VK_ and a hex number ("0x41"). */
+static int key_from_name(const char* v) {
+    if (v[0] && !v[1] && isalnum((unsigned char)v[0])) return toupper((unsigned char)v[0]);
+    if (!_strnicmp(v, "VK_", 3)) v += 3;
+    return (int)strtol(v, NULL, 0) & 0xFF;
+}
+
+/* A key-down in Modern controls, from the presenter or a script: 1 if it was
+ * taken. The attack-move key arms, Esc cancels (and still reaches the game). */
+int ra2_modern_key(int vk, int repeat) {
+    if (!ra2_modern_controls() || host_menu_cursor()) return 0;    /* not in a battle */
+    if (vk == g_attack_move_vk) {
+        if (!repeat) {
+            InterlockedExchange(&g_attack_move_request, ATTACK_MOVE_ARM);
+            fprintf(stderr, "[modern] attack-move key 0x%X\n", vk);
+        }
+        return 1;
+    }
+    if (vk == VK_ESCAPE && attack_move_armed()) InterlockedExchange(&g_attack_move_request, ATTACK_MOVE_CANCEL);
+    return 0;
+}
+
+/* The game thread's half, from the battlefield mouse hook: what the key asked. */
+int ra2_modern_attack_move_request(void) {
+    int r = (int)InterlockedExchange(&g_attack_move_request, 0);
+    if (r == ATTACK_MOVE_CANCEL) fprintf(stderr, "[modern] attack-move cancelled\n");
+    return r;
+}
+
+void present_force_controls(const char* name) {
+    InterlockedExchange(&g_controls_forced, !_stricmp(name, "modern"));
+    InterlockedExchange(&g_modern_controls, g_controls_forced);
+}
+
+/* A test aid: in a scripted run, log the damage the player's side deals
+ * (ObjectClass::ReceiveDamage's attacking house), so a playtest can tell an
+ * attack-move that fought on the way from a move that did not. */
+void ra2_hit_logged(uint32_t victim, uint32_t house, uint32_t player, uint32_t mission) {
+    static volatile LONG n[33];             /* per attacker mission; the last for any other */
+    if (!input_scripted() || !house || house != player) return;
+    LONG k = InterlockedIncrement(&n[mission < 32 ? mission : 32]);
+    if (k <= 3 || k % 50 == 0)
+        fprintf(stderr, "[hit] the player's side hit object %08X: attacker mission %d (%ld)\n", victim,
+                (int)mission, k);
+}
 
 /* ---- Direct3D 11 --------------------------------------------------------- */
 
@@ -769,6 +834,7 @@ static LRESULT CALLBACK wndproc(HWND hw, UINT m, WPARAM w, LPARAM l) {
         forward_key(m, w, l);
         return 0;
     case WM_KEYDOWN:
+        if (ra2_modern_key((int)w, (l & 0x40000000) != 0)) return 0;
         if (w == VK_F11) { set_fullscreen(hw, !g_fullscreen); settings_save(hw); return 0; }
         if (w == VK_F12) {
             g_mode = (g_mode + 1) % NMODES;
@@ -784,6 +850,8 @@ static LRESULT CALLBACK wndproc(HWND hw, UINT m, WPARAM w, LPARAM l) {
         return 0;
     case WM_KEYUP: case WM_SYSKEYUP:
         if (w == VK_F10 || w == VK_F11 || w == VK_F12) return 0;
+        if (m == WM_KEYUP && (LONG)w == g_attack_move_vk && ra2_modern_controls() && !host_menu_cursor())
+            return 0;                       /* its key-down was taken (ra2_modern_key) */
         forward_key(m, w, l);
         return 0;
     case WM_CLOSE:
@@ -962,7 +1030,9 @@ void present_start(int mode, int fullscreen) {
     GetPrivateProfileStringA("present", "bars", "blur", v, sizeof v, g_ini);
     g_bars = _stricmp(v, "black") != 0;
     GetPrivateProfileStringA("present", "controls", "classic", v, sizeof v, g_ini);
-    InterlockedExchange(&g_modern_controls, !_stricmp(v, "modern"));
+    InterlockedExchange(&g_modern_controls, g_controls_forced >= 0 ? g_controls_forced : !_stricmp(v, "modern"));
+    GetPrivateProfileStringA("keys", "attackmove", "A", v, sizeof v, g_ini);
+    if (key_from_name(v)) InterlockedExchange(&g_attack_move_vk, key_from_name(v));
     if (fullscreen < 0) fullscreen = GetPrivateProfileIntA("present", "fullscreen", 0, g_ini);
     if (!ra2_vox_hd_on) {                   /* --hd-voxels forces it; the ini holds 0 off, 2/3 scale */
         int hv = GetPrivateProfileIntA("present", hdvox_key(), host_under_wine() ? 0 : 2, g_ini);
@@ -996,6 +1066,17 @@ uint32_t ra2_modern_mouse_message(uint32_t message, int special_mode_active) {
         g_modern_suppress_right_deselect = 0;
         input_live_map_right_to_left(0);
         return message;
+    }
+    /* A right-click while attack-move is armed only cancels it. */
+    if (message == WM_RBUTTONDOWN && attack_move_armed()) {
+        *(volatile uint8_t*)(uintptr_t)RA2_ATTACK_MOVE_FLAG_VA = 0;
+        g_attack_move_eat_right = 1;
+        fprintf(stderr, "[modern] attack-move cancelled\n");
+        return 0;
+    }
+    if (message == WM_RBUTTONUP && g_attack_move_eat_right) {
+        g_attack_move_eat_right = 0;
+        return 0;
     }
     if (message == WM_RBUTTONDOWN) {
         g_modern_right_gesture = 1;
@@ -1088,6 +1169,14 @@ uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target,
     if (!InterlockedCompareExchange(&g_modern_controls, 0, 0) || special)
         return action;
 
+    /* Attack-move armed and a click on the ground: the game's own order, which
+     * the armed flag turns into mission AttackMove. On an object the click is
+     * an ordinary one; ra2_modern_end_left_up disarms it after either. */
+    if (!target && !g_modern_right_click && attack_move_armed()) {
+        fprintf(stderr, "[modern] attack-move order (action %u)\n", action);
+        return action;
+    }
+
     int selecting = action == ACTION_SELECT || action == ACTION_TOGGLE_SELECT;
     if (g_modern_right_click) {
         /* A routed right-click issues contextual orders only. Select and
@@ -1149,6 +1238,9 @@ int ra2_modern_take_type_select(void) {
 void ra2_modern_end_left_up(void) {
     g_modern_skip_selection_clear = 0;
     g_modern_box_shift = 0;
+    /* Attack-move lasts one battlefield click, whatever the click did. */
+    if (InterlockedCompareExchange(&g_modern_controls, 0, 0))
+        *(volatile uint8_t*)(uintptr_t)RA2_ATTACK_MOVE_FLAG_VA = 0;
 }
 
 /* The shared selection-clear routine (sub_0048DC90 in Yuri's Revenge): skip it
