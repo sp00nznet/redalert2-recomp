@@ -60,7 +60,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE)
   set(HLE ${PCRECOMP}/runtime/win32hle)
   file(GLOB HLE_SOURCES CONFIGURE_DEPENDS "${HLE}/*.c")
   list(FILTER HLE_SOURCES EXCLUDE REGEX "_selftest\.c$|/[.]_[^/]*$")
-  add_executable(ra2 src/linux/main.c src/linux/blowfish.c src/linux/script.c src/linux/mods.c src/linux/menu.c src/runtime/hdvox.c src/runtime/queuefive.c ${HLE_SOURCES} ${GEN_SOURCES})
+  add_executable(ra2 src/linux/main.c src/linux/blowfish.c src/linux/script.c src/linux/mods.c src/linux/menu.c src/runtime/hdvox.c src/runtime/queuefive.c src/runtime/gridkeys.c ${HLE_SOURCES} ${GEN_SOURCES})
   target_include_directories(ra2 PRIVATE src/linux src/runtime ${GEN_DIR} ${HLE} ${PCRECOMP}/runtime/recomp32)
   target_compile_definitions(ra2 PRIVATE RECOMP_RETADDR=0u RECOMP_LOCAL_REGS)
   if(WITH_FFMPEG)
@@ -106,6 +106,7 @@ add_executable(ra2
   src/runtime/present.c
   src/runtime/hdvox.c
   src/runtime/queuefive.c
+  src/runtime/gridkeys.c
   ${PCRECOMP}/runtime/native32/native32.c
   ${PCRECOMP}/runtime/recomp32/image_loader.c
   ${PCRECOMP}/runtime/recomp32/recomp_trace.c
