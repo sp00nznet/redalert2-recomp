@@ -124,8 +124,13 @@ uint8_t ra2_vox_hd[HD_MAXD * HD_MAXD];    /* the last part rendered, at up to HD
 int ra2_vox_hd_passes = 3;                /* extra finish-stage runs = N*N-1 */
 static int g_scale = 2, g_stride = 512;   /* N, and 256*N (ra2_vox_hd row) */
 
-int ra2_vox_scale(void) { return g_scale; }
+/* A scale picked while the game renders (F10, on the presenter's thread) waits
+ * here for the game's thread, which applies it between frames: freeing the
+ * memo and changing N under a render in progress raced it (issue #34). */
+static volatile LONG g_scale_want;
+int ra2_vox_scale(void) { LONG n = g_scale_want; return n ? (int)n : g_scale; }
 void ra2_vox_set_scale(int n);            /* defined at the end; resets what was built at the old N */
+static void scale_apply(void);
 
 void hdvox_configure(int on, const char* dump_dir) {
     const char* s = getenv("RA2_HD_SCALE");
@@ -728,6 +733,7 @@ void ra2_vox_frame_blit(uint32_t dest, uint32_t argp) {
             sum = 0, n = 0;
         }
     }
+    if (dest == FRAME_SURF && g_scale_want) scale_apply();
     if (!HD_LIVE || dest != FRAME_SURF) return;
     if (!g_arena[0]) return;
     /* The frame surface gets more than one copy a frame: publish when this
@@ -764,6 +770,21 @@ void ra2_vox_frame_blit(uint32_t dest, uint32_t argp) {
 
 static long g_pictures, g_dips;
 
+/* The records of a battle that is over. A battle publishes every frame it
+ * draws a unit; the menus after one publish nothing, and its last records
+ * showed wherever a menu happened to have their 1x colour (black, mostly):
+ * copies of the units over the menus (issue #39). A second with no
+ * publish and they are dropped. Called under g_pub_lock. */
+static int records_stale(void) {
+    LARGE_INTEGER t, hz;
+    if (!g_last_frame) return 1;
+    QueryPerformanceCounter(&t);
+    QueryPerformanceFrequency(&hz);
+    if (t.QuadPart - g_last_frame < hz.QuadPart) return 0;
+    g_used[g_pub] = g_used[g_prev] = 0;
+    return 1;
+}
+
 /* 16-bit 565 -> BGRX through a table built once. compose converts millions of
  * pixels a frame; at 1080p+ the per-pixel shifts were real cost (a Linux
  * 4090/9800X3D saw HD voxels chug, native x86, not just under Wine). */
@@ -781,9 +802,10 @@ static uint32_t bgrx(uint16_t p) { return g_bgrx_lut[p]; }
 
 /* The presenter's Nx frame: frame16 is the 1x frame (16-bit, w x h, pitch in
  * bytes), out gets Nw x Nh BGRX (N = ra2_vox_scale()). */
-void hdvox_compose(const uint8_t* frame16, int pitch, int w, int h, uint32_t* out) {
+int hdvox_compose(const uint8_t* frame16, int pitch, int w, int h, uint32_t* out, int n) {
     static long matched[2], offered[2], logged_at;
     int N = g_scale, NN = N * N, W = N * w;
+    if (N != n) return 0;                         /* changed since the caller sized out */
     bgrx_ready();
     for (int y = 0; y < h; y++) {
         const uint16_t* row = (const uint16_t*)(frame16 + y * pitch);
@@ -794,10 +816,10 @@ void hdvox_compose(const uint8_t* frame16, int pitch, int w, int h, uint32_t* ou
         }
         for (int ry = 1; ry < N; ry++) memcpy(o0 + (size_t)ry * W, o0, (size_t)W * 4);   /* copy the first row down */
     }
-    if (!HD_LIVE || !g_pub_lock_init) return;
+    if (!HD_LIVE || !g_pub_lock_init) return 1;
     long got[2][2] = { { 0 } }, off[2][2] = { { 0 } };     /* [set][kind] */
     EnterCriticalSection(&g_pub_lock);
-    for (int set = 0; set < 2; set++) {           /* the set before, then the last */
+    for (int set = 0; set < 2 && N == g_scale && !records_stale(); set++) {   /* the set before, then the last */
         const uint8_t* p = g_arena[set ? g_pub : g_prev];
         size_t used = g_used[set ? g_pub : g_prev];
         for (size_t at = 0; at < used;) {
@@ -851,6 +873,7 @@ void hdvox_compose(const uint8_t* frame16, int pitch, int w, int h, uint32_t* ou
                 1000.0 * g_frame_ticks / hz.QuadPart / n, 1000.0 * g_hd_ticks / hz.QuadPart / n,
                 g_memo_hits + g_memo_misses, g_memo_hits, g_anim_renders);
     }
+    return 1;
 }
 
 /* ---- the HD layer as a sparse overlay (hdvox.h) ------------------------------
@@ -860,19 +883,32 @@ void hdvox_compose(const uint8_t* frame16, int pitch, int w, int h, uint32_t* ou
  * over the records' rects, and clears last call's rects so a moved unit leaves
  * nothing behind. *dx..*dh is the union of the two, the only region to upload. */
 static int g_ov_bx0, g_ov_by0, g_ov_bx1, g_ov_by1;   /* last call's 1x write bbox */
+static int g_ov_w, g_ov_h, g_ov_d;                     /* the size and scale ov was last laid out at */
+static long g_ov_stale;                                /* opaque ov pixels outside the records (RA2_HDVOX_CHECK) */
 
-int hdvox_overlay(const uint8_t* frame16, int pitch, int w, int h, uint32_t* ov,
+int hdvox_overlay(const uint8_t* frame16, int pitch, int w, int h, uint32_t* ov, int n,
                   int* odx, int* ody, int* odw, int* odh) {
     *odx = *ody = *odw = *odh = 0;
     if (!HD_LIVE || !g_pub_lock_init || !g_arena[0]) return 0;
+    EnterCriticalSection(&g_pub_lock);
     int N = g_scale, NN = N * N;
     int D = ra2_vox_aa ? 1 : N;       /* display scale: 1x averaged (AA) or Nx subpixels */
     int W = D * w;                    /* the ov buffer's row stride, in pixels */
+    if (N > n) { LeaveCriticalSection(&g_pub_lock); return 0; }   /* larger than the caller sized ov for */
     bgrx_ready();
-    EnterCriticalSection(&g_pub_lock);
+    /* A new size or scale lays ov out anew: what it held was at the old
+     * stride, and clearing only the last bbox left copies of the units in
+     * the rest (after a resolution or HD scale change, issue #39). */
+    int fresh = w != g_ov_w || h != g_ov_h || D != g_ov_d;
+    if (fresh) {
+        memset(ov, 0, (size_t)W * D * h * 4);
+        g_ov_w = w, g_ov_h = h, g_ov_d = D;
+        g_ov_bx0 = g_ov_by0 = g_ov_bx1 = g_ov_by1 = 0;
+    }
+    int stale = records_stale();
     /* this call's 1x bounding box over both record sets, clipped to the frame */
     int bx0 = w, by0 = h, bx1 = 0, by1 = 0;
-    for (int set = 0; set < 2; set++) {
+    for (int set = 0; set < 2 && !stale; set++) {
         const uint8_t* p = g_arena[set ? g_pub : g_prev];
         size_t used = g_used[set ? g_pub : g_prev];
         for (size_t at = 0; at < used;) {
@@ -902,12 +938,13 @@ int hdvox_overlay(const uint8_t* frame16, int pitch, int w, int h, uint32_t* ov,
     if (cx1 > w) cx1 = w;                              /* a shrunk resolution: clamp */
     if (cy1 > h) cy1 = h;
     g_ov_bx0 = bx0, g_ov_by0 = by0, g_ov_bx1 = bx1, g_ov_by1 = by1;
+    if (fresh) cx0 = cy0 = 0, cx1 = w, cy1 = h;          /* upload all of it */
     if (cx1 <= cx0 || cy1 <= cy0) { LeaveCriticalSection(&g_pub_lock); return D; }  /* empty */
     for (int y = D * cy0; y < D * cy1; y++)
         memset(ov + (size_t)y * W + D * cx0, 0, (size_t)(cx1 - cx0) * D * 4);
     /* the units' Nx pixels, older set first (pub over prev), where the frame
      * still shows what the record expects */
-    for (int set = 0; set < 2; set++) {
+    for (int set = 0; set < 2 && !stale; set++) {
         const uint8_t* p = g_arena[set ? g_pub : g_prev];
         size_t used = g_used[set ? g_pub : g_prev];
         for (size_t at = 0; at < used;) {
@@ -939,6 +976,23 @@ int hdvox_overlay(const uint8_t* frame16, int pitch, int w, int h, uint32_t* ov,
             at += (sizeof(rec_t) + (size_t)rw * rh * (3 + 2 * NN) + 7) & ~(size_t)7;
         }
     }
+    /* the test's check: nothing opaque outside this call's records */
+    {
+        static int check = -1;
+        if (check < 0) check = getenv("RA2_HDVOX_CHECK") != NULL;
+        if (check) {
+            static long calls;
+            long out = 0;
+            for (int y = 0; y < D * h; y++)
+                for (int x = 0; x < W; x++)
+                    if (ov[(size_t)y * W + x] >> 24 && (x < D * bx0 || x >= D * bx1 || y < D * by0 || y >= D * by1))
+                        out++;
+            g_ov_stale += out;
+            if (++calls % 300 == 0 || (out && g_ov_stale == out))
+                fprintf(stderr, "[hdvox] overlay %dx%d at %dx: %ld calls, %ld pixels outside the records\n",
+                        w, h, D, calls, g_ov_stale);
+        }
+    }
     LeaveCriticalSection(&g_pub_lock);
     *odx = D * cx0, *ody = D * cy0, *odw = D * (cx1 - cx0), *odh = D * (cy1 - cy0);
     return D;
@@ -951,14 +1005,23 @@ int hdvox_overlay(const uint8_t* frame16, int pitch, int w, int h, uint32_t* ov,
 void ra2_vox_set_scale(int n) {
     if (n < 2) n = 2;
     if (n > HD_MAX) n = HD_MAX;
-    if (n == g_scale) return;
+    InterlockedExchange(&g_scale_want, n);
+    if (!g_arena[0] && !g_memo_misses) scale_apply();   /* nothing rendered yet: the setting path, --hd-scale */
+}
+
+/* On the game's thread between frames (ra2_vox_frame_blit), or before any
+ * render: nothing is between hd_begin and hd_end, and no stamp is open. */
+static void scale_apply(void) {
+    int n = (int)InterlockedExchange(&g_scale_want, 0);
+    if (!n || n == g_scale) return;
+    if (g_pub_lock_init) EnterCriticalSection(&g_pub_lock);
     g_scale = n;
     g_stride = 256 * n;
     ra2_vox_hd_passes = n * n - 1;
     for (int i = 0; i < MEMO; i++) { free(g_memo[i].px); g_memo[i].px = 0; }
-    if (g_pub_lock_init) EnterCriticalSection(&g_pub_lock);
     g_used[0] = g_used[1] = g_used[2] = 0;
-    if (g_pub_lock_init) LeaveCriticalSection(&g_pub_lock);
     g_nstamps = 0;
     g_ov_bx0 = g_ov_by0 = g_ov_bx1 = g_ov_by1 = 0;
+    if (g_pub_lock_init) LeaveCriticalSection(&g_pub_lock);
+    fprintf(stderr, "[hdvox] scale %dx\n", n);
 }

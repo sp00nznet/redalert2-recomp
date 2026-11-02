@@ -189,6 +189,12 @@ class Script:
         self.t += 3
         return self
 
+    def hdscale(self, n):
+        """F10's HD vehicles scale, 2 or 3 (input.c --hd-scale N@s)."""
+        self.args += ['--hd-scale', '%d@%g' % (n, self.t)]
+        self.t += 1
+        return self
+
     def resolution(self, w, h):
         """F10's game resolution, for the next battle (input.c --resolution)."""
         self.args += ['--resolution', '%dx%d@%g' % (w, h, self.t)]
@@ -327,6 +333,24 @@ hd_scroll = scroll(SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'Sta
                    .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10), 15)
 hd_scroll.args += ['--hd-voxels']
 case('hd-scroll', hd_scroll, 150, ingame=True, hd=True)
+# The same at 3x (issue #34), at 1280x720 where 3x fits the 4096-wide frame.
+hd_scroll_3x = scroll(SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
+                      .waitlog(INGAME).move(560, 360, after=2).key('0x48', after=10), 15)
+hd_scroll_3x.args += ['--hd-voxels', '--hd-scale', '3']
+case('hd-scroll-3x', hd_scroll_3x, 150, ingame=True, hd=True,
+     ini={'Video': {'ScreenWidth': 1280, 'ScreenHeight': 720}})
+# The HD scale switched in a battle, 2x -> 3x -> 2x, from the script's thread
+# as F10 does from the presenter's (issue #34: the switch freed the 2x images
+# under a render), while the view scrolls. The overlay's own check
+# (RA2_HDVOX_CHECK) counts opaque pixels left outside the current records: a
+# unit copy from before the switch (issue #39).
+s = SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame').waitlog(INGAME)
+s = scroll(s.move(560, 360, after=2).key('0x48', after=10).hdscale(3), 4)
+s = scroll(s.hdscale(2), 4)
+s.args += ['--hd-voxels']
+case('hd-rescale', s, 150, ingame=True, hdcheck=True, env={'RA2_HDVOX_CHECK': '1'},
+     log={'[hdvox] scale 3x': 1, '[hdvox] scale 2x': 1},
+     ini={'Video': {'ScreenWidth': 1280, 'ScreenHeight': 720}})
 # Building and training: deploy the MCV; build a power plant from the
 # sidebar's first icon and place it beside the construction yard; then a
 # barracks (the second row's first icon, once power is up) the same way; then
@@ -523,6 +547,15 @@ def run(name, args, seconds, expect, every, original=False):
                 bad.append('%d pictures with the units at 1x' % dips)
             if shown < 0.9 * offered or not offered:
                 bad.append('units at 2x in only %d of %d pixels' % (shown, offered))
+    # hdcheck: the overlay (RA2_HDVOX_CHECK) ran and left nothing outside the records
+    if expect.get('hdcheck'):
+        ov = re.findall(r'\[hdvox\] overlay \d+x\d+ at \dx: (\d+) calls, (\d+) pixels outside', text)
+        if not ov or int(ov[-1][0]) < 100:
+            bad.append('the overlay check never ran')
+        else:
+            seen.append('overlay: %s calls, %s pixels outside the records' % ov[-1])
+            if int(ov[-1][1]):
+                bad.append('%s overlay pixels outside the records (unit copies)' % ov[-1][1])
     # log: {text: at least n}, lines the game's own debug log must print
     # ("Adding event PRODUCE" for each order to build or train).
     for text, n in expect.get('log', {}).items():
