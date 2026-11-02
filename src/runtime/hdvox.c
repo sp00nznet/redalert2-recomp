@@ -713,6 +713,8 @@ void ra2_vox_anim_blitted(void) { if (anims_on()) ra2_vox_hd_blitted(); }
  * way, not by blitting into the primary, so this is how the presenter knows a
  * new frame is there (host_frame_count). */
 volatile LONG ra2_frame_copies;
+volatile LONG ra2_primary_blits;                  /* the menus' blits into the primary (host.c) */
+static LONG g_pub_blits;                          /* ra2_primary_blits at the last publish */
 
 /* 0x004373B0 entry: a copy into the frame surface ends the frame. */
 void ra2_vox_frame_blit(uint32_t dest, uint32_t argp) {
@@ -759,6 +761,7 @@ void ra2_vox_frame_blit(uint32_t dest, uint32_t argp) {
     g_build = 3 - g_prev - g_pub;
     g_used[g_build] = 0;
     g_published_frames++;
+    g_pub_blits = ra2_primary_blits;
     {
         LARGE_INTEGER t;
         QueryPerformanceCounter(&t);
@@ -773,14 +776,14 @@ static long g_pictures, g_dips;
 /* The records of a battle that is over. A battle publishes every frame it
  * draws a unit; the menus after one publish nothing, and its last records
  * showed wherever a menu happened to have their 1x colour (black, mostly):
- * copies of the units over the menus (issue #39). A second with no
- * publish and they are dropped. Called under g_pub_lock. */
+ * copies of the units over the menus (issue #39). The menus blit into the
+ * primary and a battle does not (host.c counts those blits here), so 30 of
+ * them with no publish is the menus, and the records are dropped. Not time:
+ * a battle that stalls for a second (a loaded machine) blits nothing and
+ * keeps its units at Nx. Called under g_pub_lock. */
 static int records_stale(void) {
-    LARGE_INTEGER t, hz;
     if (!g_last_frame) return 1;
-    QueryPerformanceCounter(&t);
-    QueryPerformanceFrequency(&hz);
-    if (t.QuadPart - g_last_frame < hz.QuadPart) return 0;
+    if (ra2_primary_blits - g_pub_blits < 30) return 0;
     g_used[g_pub] = g_used[g_prev] = 0;
     return 1;
 }

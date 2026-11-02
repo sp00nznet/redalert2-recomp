@@ -530,7 +530,9 @@ long host_frame_count(void) {
 }
 
 static void count_frame(void) {
+    extern volatile LONG ra2_primary_blits;       /* hdvox.c: the menus are drawing */
     LONG n = InterlockedIncrement(&g_frames);
+    InterlockedIncrement(&ra2_primary_blits);
     if (n == 1 || n == 10 || n == 100 || n % 1000 == 0)
         fprintf(stderr, "[headless] frame %ld blitted to the primary\n", n);
 }

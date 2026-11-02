@@ -496,6 +496,7 @@ def run(name, args, seconds, expect, every, original=False):
     with open(log, 'w', errors='replace') as f, (IPX if lan else contextlib.nullcontext()):
         try:
             code = subprocess.run(cmd, cwd=ROOT, stdout=f, stderr=subprocess.STDOUT,
+                                  env=dict(os.environ, **expect.get('env', {})),   # a case's own variables
                                   timeout=seconds + 300).returncode
         except subprocess.TimeoutExpired:
             code = 'timeout'
