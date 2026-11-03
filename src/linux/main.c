@@ -113,6 +113,11 @@ void ra2_hit_logged(uint32_t victim, uint32_t house, uint32_t player, uint32_t m
     (void)victim, (void)house, (void)player, (void)mission;
 }
 
+/* UI scale (src/runtime/present.c) is the Windows presenter's too: this host
+ * has no picture to compose it into, so the sidebar and the view keep their full height. */
+int32_t ra2_ui_sidebar_h(int32_t h) { return h; }
+int32_t ra2_ui_view_h(int32_t h) { return h; }
+
 /* ---- game-specific answers ------------------------------------------------ */
 
 /* Message boxes print; headless, a question is answered No. */

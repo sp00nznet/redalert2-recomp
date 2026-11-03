@@ -220,6 +220,7 @@ def S():
 #   expect 'ini':     RA2MD.INI values for the case's game folder, {section: {key: value}}
 #   expect 'size':    the picture in game is this (w, h)
 #   expect 'hd':      HD voxels on, and no 2x picture showed the units at 1x
+#   expect 'env':     environment variables for the host, {name: value}
 #   expect 'log':     {text: n}, lines the game or host prints at least n times
 #   expect 'nolog':   [text], lines it must never print
 CASES = {}
@@ -472,6 +473,16 @@ for w, h in RES:
     case('res-%dx%d' % (w, h), SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
          .waitlog(INGAME).move(w // 2 - 80, h // 2, after=2).key('0x48', after=10),
          180, ingame=True, size=(w, h), ini=video)
+# UI scale 2x (docs/presenter.md): at 3440x1440 less the 168 lines the 2x
+# sidebar adds, the sidebar laid out in the top half of its strip, and the
+# view 32 lines shorter for the bar under it drawn 2x (1440 - 64). Headless
+# there is no presenter to compose it; the case shows the layout and a
+# battle that runs with it.
+case('ui-scale-2x', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
+     .waitlog(INGAME).move(1556, 720, after=2).key('0x48', after=10),
+     180, ingame=True, size=(3272, 1440), ini={'Video': {'ScreenWidth': 3272, 'ScreenHeight': 1440}},
+     env={'RA2_UI_SCALE': '2'}, log={'[present] UI scale 2x: sidebar': 1, '[present] UI scale 2x: view': 1,
+                                     'Set_View_Dimensions(0,0,3104,1376)': 1})
 case('res-campaign-1920x1080', SP().press(SINGLE, 'NewCampaign', CAMPAIGN).press(CAMPAIGN, 1770)
      .waitlog(INGAME).move(880, 540, after=2).key('0x48', after=10), 300, ingame=True, alive=True,
      size=(1920, 1080), ini={'Video': {'ScreenWidth': 1920, 'ScreenHeight': 1080}})
@@ -525,7 +536,7 @@ def run(name, args, seconds, expect, every, original=False):
     with open(log, 'w', errors='replace') as f, (IPX if lan else contextlib.nullcontext()):
         try:
             code = subprocess.run(cmd, cwd=ROOT, stdout=f, stderr=subprocess.STDOUT,
-                                  timeout=seconds + 300).returncode
+                                  env={**os.environ, **expect.get('env', {})}, timeout=seconds + 300).returncode
         except subprocess.TimeoutExpired:
             code = 'timeout'
     text = open(log, errors='replace').read()
