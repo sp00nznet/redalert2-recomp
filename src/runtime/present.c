@@ -23,6 +23,7 @@
 #include <windowsx.h>
 #include <d3d11.h>
 #include <dxgi.h>
+#include <ctype.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -140,6 +141,10 @@ static int g_modern_right_drag;          /* native right-drag camera pan is acti
 static int g_modern_suppress_left_release;   /* the handoff release must not issue a click */
 static int g_modern_suppress_right_deselect; /* a pan release must not clear selection */
 static POINT g_modern_right_origin;      /* screen point of the right press */
+static volatile LONG g_controls_forced = -1;   /* --controls: wins over ra2.ini */
+static volatile LONG g_modern_middle_pan;      /* the next right-down is a middle-drag's: pan at once */
+static volatile LONG g_attack_move_request;    /* ATTACK_MOVE_ARM / _CANCEL, taken on the game thread */
+static int g_attack_move_eat_right;      /* a right press cancelled attack-move: its release too */
 static volatile LONG g_gw = 800, g_gh = 600;   /* the game's picture, last frame */
 static RECT g_dst;                       /* where it is drawn in the client area */
 static int g_cut_at, g_cut_w;            /* a menu's black band left out, in game x (cut_menu_band) */
@@ -149,6 +154,76 @@ static HWND g_capture_target;            /* the game window a held button went t
 static HWND g_present_hwnd;              /* this window, for present_real_mouse */
 #define WM_REAL_MOUSE (WM_APP + 0x10)    /* + (message - WM_MOUSEFIRST): lParam is a screen point */
 static POINT g_capture_off;              /* game point -> that window's client */
+static int g_selftest;                   /* --selftest-input: no window, the real cursor left alone */
+
+/* ---- attack-move (docs/modern-controls.md) --------------------------------
+ * Both games have one: the order Yuri's Revenge's command bar button gives
+ * (UICmnds.cpp; 'attack_move_arm' in run_lift.py). Arming it sets a flag the
+ * game reads when the next click turns into an order, and a Move becomes
+ * mission AttackMove. Modern controls put it on a key; the arming itself runs
+ * on the game thread, from the battlefield mouse hook. */
+enum { ATTACK_MOVE_ARM = 1, ATTACK_MOVE_CANCEL = 2 };
+
+int ra2_modern_controls(void);
+int ra2_orders_right_click(uint32_t action);    /* orders.c */
+void ra2_orders_idle_key(int harvester);
+void ra2_orders_speed_key(int step);
+void ra2_orders_pause_key(void);
+
+static int attack_move_armed(void) {
+    return *(volatile uint8_t*)(uintptr_t)RA2_ATTACK_MOVE_FLAG_VA != 0;
+}
+
+/* A key-down in Modern controls, from the presenter or a script: 1 if it was
+ * taken. The attack-move key arms, Esc cancels (and still reaches the game). */
+int ra2_modern_key(int vk, int repeat) {
+    if (!ra2_modern_controls() || host_menu_cursor()) return 0;    /* not in a battle */
+    if (input_key_is(KEY_ATTACKMOVE, vk)) {
+        if (!repeat) {
+            InterlockedExchange(&g_attack_move_request, ATTACK_MOVE_ARM);
+            fprintf(stderr, "[modern] attack-move key 0x%X\n", vk);
+        }
+        return 1;
+    }
+    if (input_key_is(KEY_IDLEHARV, vk) || input_key_is(KEY_IDLEUNIT, vk)) {
+        ra2_orders_idle_key(input_key_is(KEY_IDLEHARV, vk));
+        return 1;
+    }
+    if (input_key_is(KEY_FASTER, vk) || input_key_is(KEY_SLOWER, vk)) {
+        ra2_orders_speed_key(input_key_is(KEY_FASTER, vk) ? 1 : -1);
+        return 1;
+    }
+    if (input_key_is(KEY_PAUSE, vk)) {
+        if (!repeat) ra2_orders_pause_key();
+        return 1;
+    }
+    if (vk == VK_ESCAPE && attack_move_armed()) InterlockedExchange(&g_attack_move_request, ATTACK_MOVE_CANCEL);
+    return 0;
+}
+
+/* The game thread's half, from the battlefield mouse hook: what the key asked. */
+int ra2_modern_attack_move_request(void) {
+    int r = (int)InterlockedExchange(&g_attack_move_request, 0);
+    if (r == ATTACK_MOVE_CANCEL) fprintf(stderr, "[modern] attack-move cancelled\n");
+    return r;
+}
+
+void present_force_controls(const char* name) {
+    InterlockedExchange(&g_controls_forced, !_stricmp(name, "modern"));
+    InterlockedExchange(&g_modern_controls, g_controls_forced);
+}
+
+/* A test aid: in a scripted run, log the damage the player's side deals
+ * (ObjectClass::ReceiveDamage's attacking house), so a playtest can tell an
+ * attack-move that fought on the way from a move that did not. */
+void ra2_hit_logged(uint32_t victim, uint32_t house, uint32_t player, uint32_t mission) {
+    static volatile LONG n[33];             /* per attacker mission; the last for any other */
+    if (!input_scripted() || !house || house != player) return;
+    LONG k = InterlockedIncrement(&n[mission < 32 ? mission : 32]);
+    if (k <= 3 || k % 50 == 0)
+        fprintf(stderr, "[hit] the player's side hit object %08X: attacker mission %d (%ld)\n", victim,
+                (int)mission, k);
+}
 
 /* ---- Direct3D 11 --------------------------------------------------------- */
 
@@ -523,6 +598,89 @@ static void forward_key(UINT m, WPARAM w, LPARAM l) {
     else if (GetGUIThreadInfo(GetWindowThreadProcessId(g_input_hwnd, NULL), &gti) && gti.hwndFocus)
         t = gti.hwndFocus;
     if (t) PostMessageA(t, m, w, l);
+    if (g_selftest && (m == WM_KEYDOWN || m == WM_KEYUP))
+        fprintf(stderr, "[input] key %s 0x%X posted to the game (%p)\n", m == WM_KEYDOWN ? "down" : "up",
+                (unsigned)w, (void*)t);
+}
+
+/* ---- cursor lock ----------------------------------------------------------
+ * In a battle the mouse stays on the picture (ClipCursor), so edge scrolling
+ * works at the screen's edge on a wide screen and a second monitor, and a
+ * click near the edge cannot land on the desktop. It lets go while the game
+ * shows its menus (the Windows cursor), the settings menu is open, the window
+ * is inactive (Alt-Tab) or minimised, and on exit, and takes the mouse again
+ * when it comes back. [present] cursorlock=auto (on in Modern controls, off in
+ * Classic), on or off. A self-test logs what it would clip and never takes the
+ * machine's real mouse. */
+static int g_cursor_lock = -1;           /* -1 auto, 0 off, 1 on */
+static int g_active, g_iconic, g_in_settings, g_closing;
+static int g_clipped;
+static RECT g_clip;
+
+static int cursor_lock_on(void) { return g_cursor_lock < 0 ? ra2_modern_controls() : g_cursor_lock; }
+
+static void update_clip(HWND hw) {
+    const char* why = g_closing ? "exit" : !cursor_lock_on() ? "off" : g_in_settings ? "settings"
+                    : !g_active ? "focus lost" : g_iconic ? "minimised" : host_menu_cursor() ? "menus" : NULL;
+    if (!why && g_dst.right > g_dst.left && g_dst.bottom > g_dst.top) {
+        POINT a = { g_dst.left, g_dst.top }, b = { g_dst.right, g_dst.bottom };
+        RECT want, now;
+        if (hw) ClientToScreen(hw, &a), ClientToScreen(hw, &b);
+        SetRect(&want, a.x, a.y, b.x, b.y);
+        if (!g_clipped || !EqualRect(&want, &g_clip))
+            fprintf(stderr, "[input] cursor clip %ld,%ld,%ld,%ld\n", want.left, want.top, want.right, want.bottom);
+        g_clip = want, g_clipped = 1;
+        /* Windows drops a clip on its own (another window's ClipCursor, a
+         * desktop switch): put it back while it should hold. */
+        if (!g_selftest && (!GetClipCursor(&now) || !EqualRect(&now, &want))) ClipCursor(&want);
+    } else if (why && g_clipped) {
+        fprintf(stderr, "[input] cursor released (%s)\n", why);
+        g_clipped = 0;
+        if (!g_selftest) ClipCursor(NULL);
+    }
+}
+
+/* ---- middle-drag pan -------------------------------------------------------
+ * Modern controls, in a battle: the middle button held and moved is the
+ * game's own right-drag scroll. It goes to the game as a right-down at the
+ * press point, once the mouse has moved past the Windows drag distance, then
+ * moves with the right button held, then a right-up; the battlefield hook
+ * (ra2_modern_mouse_message) starts the native pan at once for that
+ * right-down instead of taking it as a click. A plain middle click sends
+ * nothing, as before. */
+static struct { int down, panning; POINT at; } g_mpan;
+
+static int middle_pan(UINT m, WPARAM w, int x, int y) {
+    WPARAM rw = (w & ~(WPARAM)MK_MBUTTON) | MK_RBUTTON;
+    if (m == WM_MBUTTONDOWN) {
+        if (!ra2_modern_controls() || host_menu_cursor() || (w & (MK_LBUTTON | MK_RBUTTON))) return 0;
+        g_mpan.down = 1, g_mpan.panning = 0, g_mpan.at.x = x, g_mpan.at.y = y;
+        return 1;
+    }
+    if (!g_mpan.down) return 0;
+    if (m == WM_MOUSEMOVE && (w & MK_MBUTTON)) {
+        if (!g_mpan.panning) {
+            if (abs(x - g_mpan.at.x) < GetSystemMetrics(SM_CXDRAG) &&
+                abs(y - g_mpan.at.y) < GetSystemMetrics(SM_CYDRAG)) {
+                forward_mouse(WM_MOUSEMOVE, w & ~(WPARAM)MK_MBUTTON, x, y);
+                return 1;
+            }
+            POINT gp = to_game(g_mpan.at.x, g_mpan.at.y);
+            fprintf(stderr, "[input] middle-drag: the game's right-drag from %ld,%ld\n", gp.x, gp.y);
+            g_mpan.panning = 1;
+            InterlockedExchange(&g_modern_middle_pan, 1);
+            forward_mouse(WM_RBUTTONDOWN, rw, g_mpan.at.x, g_mpan.at.y);
+        }
+        forward_mouse(WM_MOUSEMOVE, rw, x, y);
+        return 1;
+    }
+    if (m == WM_MBUTTONUP) {
+        if (g_mpan.panning) forward_mouse(WM_RBUTTONUP, w & ~(WPARAM)(MK_MBUTTON | MK_RBUTTON), x, y);
+        else fprintf(stderr, "[input] middle click: nothing sent\n");
+        g_mpan.down = g_mpan.panning = 0;
+        return 1;
+    }
+    return 0;                               /* another button meanwhile: as it is */
 }
 
 static void set_fullscreen(HWND hw, int on) {
@@ -572,6 +730,7 @@ static void settings_save(HWND hw) {
     WritePrivateProfileStringA("present", "fullscreen", g_fullscreen ? "1" : "0", g_ini);
     WritePrivateProfileStringA("present", "controls",
         InterlockedCompareExchange(&g_modern_controls, 0, 0) ? "modern" : "classic", g_ini);
+    WritePrivateProfileStringA("present", "cursorlock", g_cursor_lock < 0 ? "auto" : g_cursor_lock ? "on" : "off", g_ini);
     {
         char hv[8];
         _snprintf(hv, sizeof hv - 1, "%d", ra2_vox_hd_show ? ra2_vox_scale() : 0), hv[sizeof hv - 1] = 0;
@@ -604,7 +763,7 @@ static void set_game_resolution(int w, int h) {
 }
 
 enum { ID_SCALE = 100, ID_BARS = 200, ID_FULL = 300, ID_RES = 400, ID_HDVOX = 500,
-       ID_MOD = 600, ID_CONTROLS = 700 };
+       ID_MOD = 600, ID_CONTROLS = 700, ID_CURSOR_LOCK = 710 };
 #define MAX_MENU_MODS 64
 
 static void settings_menu(HWND hw) {             /* at the mouse */
@@ -616,7 +775,7 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     static char mod_names[MAX_MENU_MODS][128];
     int nmods = mods_list(mod_names, MAX_MENU_MODS);
     static const char* const scale_label[NMODES] = { "Sharp (default)", "Smooth", "CRT", "Nearest", "Integer" };
-    char lbl[32];
+    char lbl[32], key[16];
     for (int i = 0; i < NMODES; i++)
         AppendMenuA(sc, MF_STRING | (i == g_mode ? MF_CHECKED : 0), ID_SCALE + i, scale_label[i]);
     AppendMenuA(bars, MF_STRING | (g_bars ? MF_CHECKED : 0), ID_BARS + 1, "Blurred");
@@ -626,9 +785,13 @@ static void settings_menu(HWND hw) {             /* at the mouse */
         AppendMenuA(res, MF_STRING | (opt_ok() && *OPT_W == k_res[i][0] && *OPT_H == k_res[i][1] ? MF_CHECKED : 0),
                     ID_RES + i, lbl);
     }
-    AppendMenuA(m, MF_POPUP, (UINT_PTR)sc, "Scaling\tF12");
+    input_key_to_name(input_key(KEY_SCALING), key, sizeof key);
+    _snprintf(lbl, sizeof lbl - 1, "Scaling\t%s", key), lbl[sizeof lbl - 1] = 0;
+    AppendMenuA(m, MF_POPUP, (UINT_PTR)sc, lbl);
     AppendMenuA(m, MF_POPUP, (UINT_PTR)bars, "Bars beside the picture");
-    AppendMenuA(m, MF_STRING | (g_fullscreen ? MF_CHECKED : 0), ID_FULL, "Fullscreen\tF11");
+    input_key_to_name(input_key(KEY_FULLSCREEN), key, sizeof key);
+    _snprintf(lbl, sizeof lbl - 1, "Fullscreen\t%s", key), lbl[sizeof lbl - 1] = 0;
+    AppendMenuA(m, MF_STRING | (g_fullscreen ? MF_CHECKED : 0), ID_FULL, lbl);
     {
         int hdsc = ra2_vox_scale();
         AppendMenuA(hd, MF_STRING | (!ra2_vox_hd_show ? MF_CHECKED : 0), ID_HDVOX, "Off");
@@ -641,6 +804,9 @@ static void settings_menu(HWND hw) {             /* at the mouse */
                 ID_CONTROLS, "Classic");
     AppendMenuA(controls, MF_STRING | (InterlockedCompareExchange(&g_modern_controls, 0, 0) ? MF_CHECKED : 0),
                 ID_CONTROLS + 1, "Modern");
+    AppendMenuA(controls, MF_SEPARATOR, 0, NULL);
+    AppendMenuA(controls, MF_STRING | (cursor_lock_on() ? MF_CHECKED : 0), ID_CURSOR_LOCK,
+                "Keep the mouse in the picture in battle");
     AppendMenuA(m, MF_POPUP, (UINT_PTR)controls, "Controls");
     AppendMenuA(m, MF_SEPARATOR, 0, NULL);
     AppendMenuA(m, MF_POPUP, (UINT_PTR)res, "Game resolution (next battle)");
@@ -651,7 +817,11 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     if (!nmods) AppendMenuA(mods, MF_STRING | MF_GRAYED, 0, "(put mods in the mods folder: mods\\README.md)");
     AppendMenuA(m, MF_POPUP, (UINT_PTR)mods, "Mod (restarts the game)");
     GetCursorPos(&at);
-    int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, at.x, at.y, 0, hw, NULL);
+    g_in_settings = 1;                                        /* the menu needs the whole screen */
+    update_clip(hw);
+    int cmd = g_selftest ? 0 : TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, at.x, at.y, 0, hw, NULL);
+    if (g_selftest) fprintf(stderr, "[input] settings menu (self-test: not shown)\n");
+    g_in_settings = 0;
     DestroyMenu(m);                                           /* and its submenus */
     if (cmd >= ID_SCALE && cmd < ID_SCALE + NMODES) g_mode = cmd - ID_SCALE;
     else if (cmd == ID_BARS || cmd == ID_BARS + 1) g_bars = cmd - ID_BARS;
@@ -663,6 +833,7 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     }
     else if (cmd == ID_CONTROLS || cmd == ID_CONTROLS + 1)
         InterlockedExchange(&g_modern_controls, cmd - ID_CONTROLS);
+    else if (cmd == ID_CURSOR_LOCK) g_cursor_lock = !cursor_lock_on();
     else if (cmd >= ID_RES && cmd < ID_RES + NRES) set_game_resolution(k_res[cmd - ID_RES][0], k_res[cmd - ID_RES][1]);
     else if (cmd >= ID_MOD && cmd <= ID_MOD + nmods) {
         const char* name = cmd == ID_MOD ? "" : mod_names[cmd - ID_MOD - 1];
@@ -675,6 +846,7 @@ static void settings_menu(HWND hw) {             /* at the mouse */
         return;
     }
     if (cmd) settings_save(hw);
+    update_clip(hw);
 }
 
 static DWORD WINAPI quit_soon(LPVOID unused) {
@@ -698,6 +870,25 @@ static void update_cursor(HWND hw) {
     if (GetCursorPos(&p) && WindowFromPoint(p) == hw &&
         SendMessageA(hw, WM_NCHITTEST, 0, MAKELPARAM(p.x, p.y)) == HTCLIENT)
         SetCursor(c);
+}
+
+/* The presenter's own keys ([keys] settings, fullscreen, scaling): 1 if vk
+ * was one. Rebound to an ordinary key they arrive as WM_KEYDOWN; F10 comes as
+ * a system key. */
+static int presenter_key(HWND hw, int vk) {
+    if (input_key_is(KEY_SETTINGS, vk)) { settings_menu(hw); return 1; }
+    if (input_key_is(KEY_FULLSCREEN, vk)) { set_fullscreen(hw, !g_fullscreen); settings_save(hw); return 1; }
+    if (input_key_is(KEY_SCALING, vk)) {
+        g_mode = (g_mode + 1) % NMODES;
+        fprintf(stderr, "[present] scaling: %s\n", k_mode_names[g_mode]);
+        settings_save(hw);
+        return 1;
+    }
+    return 0;
+}
+
+static int presenter_key_bound(int vk) {
+    return input_key_is(KEY_SETTINGS, vk) || input_key_is(KEY_FULLSCREEN, vk) || input_key_is(KEY_SCALING, vk);
 }
 
 static LRESULT CALLBACK wndproc(HWND hw, UINT m, WPARAM w, LPARAM l) {
@@ -743,17 +934,31 @@ static LRESULT CALLBACK wndproc(HWND hw, UINT m, WPARAM w, LPARAM l) {
                 InterlockedExchange(&g_modern_left_double_click_shift, (w & MK_SHIFT) != 0);
             }
         }
+        if (middle_pan(m, w, GET_X_LPARAM(l), GET_Y_LPARAM(l))) return 0;
         forward_mouse(m == WM_LBUTTONDBLCLK ? WM_LBUTTONDOWN : m == WM_RBUTTONDBLCLK ? WM_RBUTTONDOWN : m,
                       w, GET_X_LPARAM(l), GET_Y_LPARAM(l));
         return 0;
     case WM_MOUSEWHEEL:
         forward_key(m, w, l);
         return 0;
+    case WM_XBUTTONDOWN: case WM_XBUTTONUP: case WM_XBUTTONDBLCLK: {
+        /* Mouse 4 and 5 send the key [keys] mouse4= / mouse5= name, through
+         * the same path as the keyboard's (attack-move, the presenter's keys). */
+        int id = HIWORD(w) == XBUTTON1 ? KEY_MOUSE4 : KEY_MOUSE5, vk = input_key(id);
+        if (vk) {
+            LPARAM kl = 1 | (LPARAM)MapVirtualKeyA(vk, MAPVK_VK_TO_VSC) << 16;
+            if (m != WM_XBUTTONUP)
+                fprintf(stderr, "[input] mouse%d -> key 0x%X\n", id == KEY_MOUSE4 ? 4 : 5, vk);
+            wndproc(hw, m == WM_XBUTTONUP ? WM_KEYUP : WM_KEYDOWN, vk, m == WM_XBUTTONUP ? kl | 0xC0000000 : kl);
+        }
+        return TRUE;
+    }
     case WM_REAL_MOUSE + (WM_MOUSEMOVE - WM_MOUSEFIRST): case WM_REAL_MOUSE + (WM_LBUTTONDOWN - WM_MOUSEFIRST):
     case WM_REAL_MOUSE + (WM_LBUTTONUP - WM_MOUSEFIRST): case WM_REAL_MOUSE + (WM_LBUTTONDBLCLK - WM_MOUSEFIRST):
     case WM_REAL_MOUSE + (WM_RBUTTONDOWN - WM_MOUSEFIRST): case WM_REAL_MOUSE + (WM_RBUTTONUP - WM_MOUSEFIRST):
     case WM_REAL_MOUSE + (WM_RBUTTONDBLCLK - WM_MOUSEFIRST): case WM_REAL_MOUSE + (WM_MBUTTONDOWN - WM_MOUSEFIRST):
-    case WM_REAL_MOUSE + (WM_MBUTTONUP - WM_MOUSEFIRST): {
+    case WM_REAL_MOUSE + (WM_MBUTTONUP - WM_MOUSEFIRST): case WM_REAL_MOUSE + (WM_XBUTTONDOWN - WM_MOUSEFIRST):
+    case WM_REAL_MOUSE + (WM_XBUTTONUP - WM_MOUSEFIRST): case WM_REAL_MOUSE + (WM_XBUTTONDBLCLK - WM_MOUSEFIRST): {
         POINT p = { GET_X_LPARAM(l), GET_Y_LPARAM(l) };   /* present_real_mouse: a screen point */
         ScreenToClient(hw, &p);
         return wndproc(hw, WM_MOUSEFIRST + (m - WM_REAL_MOUSE), w, MAKELPARAM(p.x, p.y));
@@ -765,17 +970,12 @@ static LRESULT CALLBACK wndproc(HWND hw, UINT m, WPARAM w, LPARAM l) {
         break;
     case WM_SYSKEYDOWN:
         if (w == VK_RETURN) { set_fullscreen(hw, !g_fullscreen); settings_save(hw); return 0; }
-        if (w == VK_F10) { settings_menu(hw); return 0; }   /* F10 arrives as a system key */
+        if (presenter_key(hw, (int)w)) return 0;
         forward_key(m, w, l);
         return 0;
     case WM_KEYDOWN:
-        if (w == VK_F11) { set_fullscreen(hw, !g_fullscreen); settings_save(hw); return 0; }
-        if (w == VK_F12) {
-            g_mode = (g_mode + 1) % NMODES;
-            fprintf(stderr, "[present] scaling: %s\n", k_mode_names[g_mode]);
-            settings_save(hw);
-            return 0;
-        }
+        if (ra2_modern_key((int)w, (l & 0x40000000) != 0)) return 0;
+        if (presenter_key(hw, (int)w)) return 0;
         forward_key(m, w, l);
         return 0;
     case WM_CHAR: case WM_SYSCHAR:
@@ -783,16 +983,31 @@ static LRESULT CALLBACK wndproc(HWND hw, UINT m, WPARAM w, LPARAM l) {
          * above into its character: forwarded too, every letter came twice. */
         return 0;
     case WM_KEYUP: case WM_SYSKEYUP:
-        if (w == VK_F10 || w == VK_F11 || w == VK_F12) return 0;
+        if (presenter_key_bound((int)w)) return 0;
+        if (m == WM_KEYUP && (input_key_is(KEY_ATTACKMOVE, (int)w) || input_key_is(KEY_IDLEHARV, (int)w) ||
+                              input_key_is(KEY_IDLEUNIT, (int)w) || input_key_is(KEY_FASTER, (int)w) ||
+                              input_key_is(KEY_SLOWER, (int)w) || input_key_is(KEY_PAUSE, (int)w)) &&
+            ra2_modern_controls() && !host_menu_cursor())
+            return 0;                       /* its key-down was taken (ra2_modern_key) */
         forward_key(m, w, l);
         return 0;
+    case WM_ACTIVATE:                       /* Alt-Tab, a click elsewhere: the mouse goes free */
+        g_active = LOWORD(w) != WA_INACTIVE;
+        update_clip(hw);
+        break;
+    case WM_SIZE:
+        g_iconic = w == SIZE_MINIMIZED;
+        update_clip(hw);
+        break;
     case WM_CLOSE:
+        g_closing = 1;
+        update_clip(hw);
         settings_save(hw);
         if (g_input_hwnd) PostMessageA(g_input_hwnd, WM_CLOSE, 0, 0);
         CloseHandle(CreateThread(NULL, 0, quit_soon, NULL, 0, NULL));
         return 0;
     }
-    return DefWindowProcA(hw, m, w, l);
+    return hw ? DefWindowProcA(hw, m, w, l) : 0;     /* no window: the self-test */
 }
 
 /* RA2_FRAME_STATS=1: every 2 s, how many pictures the presenter showed, what
@@ -891,6 +1106,7 @@ static DWORD WINAPI present_thread(LPVOID arg) {
             DispatchMessageA(&msg);
         }
         update_cursor(hw);
+        update_clip(hw);                   /* a battle starting or ending, the window moved */
         /* The copy holds the primary's lock (4.6 ms at 1352x845 on a Mac), and
          * the game waits on that lock to draw: copying as fast as the loop ran
          * (97 a second, where vsync did not hold it back) kept the game at half
@@ -947,6 +1163,61 @@ void present_real_mouse(UINT m, WPARAM w, POINT screen) {
     if (g_present_hwnd) PostMessageA(g_present_hwnd, WM_REAL_MOUSE + (m - WM_MOUSEFIRST), w, MAKELPARAM(screen.x, screen.y));
 }
 
+/* --selftest-input S (input.c): S seconds into a scripted run, in a battle,
+ * the messages a player's mouse and keyboard send go through the window
+ * procedure, with no window: the picture 2x in a wider client area, as on a
+ * wide screen. What the presenter forwards reaches the game as in play; the
+ * cursor lock only logs what it would clip. tools/playtest.py's
+ * input-selftest reads the lines (docs/presenter.md). */
+static void st_mouse(UINT m, WPARAM w, int x, int y, int ms) {
+    wndproc(NULL, m, w, MAKELPARAM(x, y));
+    Sleep(ms);
+}
+
+void present_selftest_input(void) {
+    int gw, gh;
+    input_mode(&gw, &gh);
+    g_selftest = 1;
+    input_selftest_live(1);
+    InterlockedExchange(&g_gw, gw);
+    InterlockedExchange(&g_gh, gh);
+    SetRect(&g_dst, 160, 0, 160 + 2 * gw, 2 * gh);
+    int cx = (g_dst.left + g_dst.right) / 2, cy = (g_dst.top + g_dst.bottom) / 2;
+    fprintf(stderr, "[selftest] picture %dx%d drawn at %ld,%ld,%ld,%ld; controls %s, cursor lock %s\n", gw, gh,
+            g_dst.left, g_dst.top, g_dst.right, g_dst.bottom, ra2_modern_controls() ? "modern" : "classic",
+            cursor_lock_on() ? "on" : "off");
+
+    /* The cursor lock: taken, given up on focus loss, minimise and the
+     * settings menu, and taken again after each. */
+    wndproc(NULL, WM_ACTIVATE, WA_ACTIVE, 0);
+    wndproc(NULL, WM_ACTIVATE, WA_INACTIVE, 0);
+    wndproc(NULL, WM_ACTIVATE, WA_ACTIVE, 0);
+    wndproc(NULL, WM_SIZE, SIZE_MINIMIZED, 0);
+    wndproc(NULL, WM_SIZE, SIZE_RESTORED, 0);
+    wndproc(NULL, input_key(KEY_SETTINGS) == VK_F10 ? WM_SYSKEYDOWN : WM_KEYDOWN, input_key(KEY_SETTINGS), 1);
+
+    /* Middle-drag: a right-drag scroll in the game, 100 game pixels right,
+     * held a second; then a plain middle click, which sends nothing. */
+    st_mouse(WM_MOUSEMOVE, 0, cx, cy, 200);
+    st_mouse(WM_MBUTTONDOWN, MK_MBUTTON, cx, cy, 100);
+    for (int k = 1; k <= 10; k++) st_mouse(WM_MOUSEMOVE, MK_MBUTTON, cx + 20 * k, cy, 60);
+    Sleep(1000);
+    st_mouse(WM_MBUTTONUP, 0, cx + 200, cy, 500);
+    st_mouse(WM_MOUSEMOVE, 0, cx, cy, 200);
+    st_mouse(WM_MBUTTONDOWN, MK_MBUTTON, cx, cy, 150);
+    st_mouse(WM_MBUTTONUP, 0, cx, cy, 500);
+
+    /* Mouse 4 and 5: the keys [keys] (or --bind) gives them. */
+    st_mouse(WM_XBUTTONDOWN, MAKEWPARAM(MK_XBUTTON1, XBUTTON1), cx, cy, 150);
+    st_mouse(WM_XBUTTONUP, MAKEWPARAM(0, XBUTTON1), cx, cy, 500);
+    st_mouse(WM_XBUTTONDOWN, MAKEWPARAM(MK_XBUTTON2, XBUTTON2), cx, cy, 150);
+    st_mouse(WM_XBUTTONUP, MAKEWPARAM(0, XBUTTON2), cx, cy, 500);
+
+    wndproc(NULL, WM_ACTIVATE, WA_INACTIVE, 0);
+    input_selftest_live(0);
+    fprintf(stderr, "[selftest] done\n");
+}
+
 int present_mode_from_name(const char* name) {
     for (int i = 0; i < NMODES; i++)
         if (!_stricmp(name, k_mode_names[i])) return i;
@@ -962,7 +1233,10 @@ void present_start(int mode, int fullscreen) {
     GetPrivateProfileStringA("present", "bars", "blur", v, sizeof v, g_ini);
     g_bars = _stricmp(v, "black") != 0;
     GetPrivateProfileStringA("present", "controls", "classic", v, sizeof v, g_ini);
-    InterlockedExchange(&g_modern_controls, !_stricmp(v, "modern"));
+    InterlockedExchange(&g_modern_controls, g_controls_forced >= 0 ? g_controls_forced : !_stricmp(v, "modern"));
+    GetPrivateProfileStringA("present", "cursorlock", "auto", v, sizeof v, g_ini);
+    g_cursor_lock = !_stricmp(v, "on") || !strcmp(v, "1") ? 1 : !_stricmp(v, "off") || !strcmp(v, "0") ? 0 : -1;
+    input_keys_load(g_ini);
     if (fullscreen < 0) fullscreen = GetPrivateProfileIntA("present", "fullscreen", 0, g_ini);
     if (!ra2_vox_hd_on) {                   /* --hd-voxels forces it; the ini holds 0 off, 2/3 scale */
         int hv = GetPrivateProfileIntA("present", hdvox_key(), host_under_wine() ? 0 : 2, g_ini);
@@ -987,6 +1261,9 @@ int ra2_modern_controls(void) {
  * click reuses the game's left-click action resolver. Once the pointer crosses
  * the Windows drag threshold, keep the native right-button path for camera pan. */
 uint32_t ra2_modern_mouse_message(uint32_t message, int special_mode_active) {
+    /* A middle-drag's right-down (middle_pan): the native pan from the start,
+     * before the attack-move cancel and the click/drag split below. */
+    int middle = message == WM_RBUTTONDOWN && InterlockedExchange(&g_modern_middle_pan, 0);
     g_modern_right_click = 0;
     if (!InterlockedCompareExchange(&g_modern_controls, 0, 0) || special_mode_active) {
         g_modern_right_gesture = 0;
@@ -996,6 +1273,27 @@ uint32_t ra2_modern_mouse_message(uint32_t message, int special_mode_active) {
         g_modern_suppress_right_deselect = 0;
         input_live_map_right_to_left(0);
         return message;
+    }
+    if (middle) {
+        g_modern_right_gesture = 1;
+        g_modern_right_drag = 1;
+        g_modern_right_pending = 0;
+        g_modern_suppress_left_release = 0;
+        g_modern_suppress_right_deselect = 0;
+        input_live_map_right_to_left(0);
+        fprintf(stderr, "[modern] middle-drag pan\n");
+        return message;
+    }
+    /* A right-click while attack-move is armed only cancels it. */
+    if (message == WM_RBUTTONDOWN && attack_move_armed()) {
+        *(volatile uint8_t*)(uintptr_t)RA2_ATTACK_MOVE_FLAG_VA = 0;
+        g_attack_move_eat_right = 1;
+        fprintf(stderr, "[modern] attack-move cancelled\n");
+        return 0;
+    }
+    if (message == WM_RBUTTONUP && g_attack_move_eat_right) {
+        g_attack_move_eat_right = 0;
+        return 0;
     }
     if (message == WM_RBUTTONDOWN) {
         g_modern_right_gesture = 1;
@@ -1088,8 +1386,19 @@ uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target,
     if (!InterlockedCompareExchange(&g_modern_controls, 0, 0) || special)
         return action;
 
+    /* Attack-move armed and a click on the ground: the game's own order, which
+     * the armed flag turns into mission AttackMove. On an object the click is
+     * an ordinary one; ra2_modern_end_left_up disarms it after either. */
+    if (!target && !g_modern_right_click && attack_move_armed()) {
+        fprintf(stderr, "[modern] attack-move order (action %u)\n", action);
+        return action;
+    }
+
     int selecting = action == ACTION_SELECT || action == ACTION_TOGGLE_SELECT;
     if (g_modern_right_click) {
+        /* With Shift, a move on the ground is a point on the units' route
+         * (orders.c); a later point waits there, so the click does nothing. */
+        if (ra2_orders_right_click(target ? ACTION_NONE : action)) return MODERN_CLICK_IGNORE;
         /* A routed right-click issues contextual orders only. Select and
          * ToggleSelect would change the selection, and None can too (see
          * MODERN_CLICK_IGNORE). Every other action passes through. */
@@ -1149,6 +1458,9 @@ int ra2_modern_take_type_select(void) {
 void ra2_modern_end_left_up(void) {
     g_modern_skip_selection_clear = 0;
     g_modern_box_shift = 0;
+    /* Attack-move lasts one battlefield click, whatever the click did. */
+    if (InterlockedCompareExchange(&g_modern_controls, 0, 0))
+        *(volatile uint8_t*)(uintptr_t)RA2_ATTACK_MOVE_FLAG_VA = 0;
 }
 
 /* The shared selection-clear routine (sub_0048DC90 in Yuri's Revenge): skip it

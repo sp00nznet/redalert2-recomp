@@ -36,3 +36,31 @@ void  input_post_mouse(HWND h, UINT m, WPARAM w, LPARAM l);
 int   input_posted_mouse(HWND h, UINT m, LPARAM l);
 int   input_posted_mouse_peek(HWND h, UINT m, LPARAM l);   /* the same, keeping the note */                    /* FALSE: no scripted position yet */
 SHORT input_key_state(int vk, SHORT real);
+void  input_mode(int* w, int* h);                /* the game's display mode, last set */
+void  input_selftest_live(int on);               /* --selftest-input: the buttons the presenter saw count */
+
+/* ra2.ini [keys]: the presenter's rebindable keys, one row each in input.c's
+ * k_keys. A key a later feature needs is an ID here and a row there; the F10
+ * keybinding page lists the table. */
+enum {
+    KEY_ATTACKMOVE,     /* Modern controls: arm attack-move (present.c) */
+    KEY_SETTINGS,       /* the F10 menu */
+    KEY_FULLSCREEN,     /* F11 */
+    KEY_SCALING,        /* F12: the next scaling mode */
+    KEY_MOUSE4,         /* the key mouse button 4 (back) sends; 0: none */
+    KEY_MOUSE5,         /* ... button 5 (forward) */
+    KEY_IDLEHARV,       /* Modern controls: select the next idle harvester (orders.c) */
+    KEY_IDLEUNIT,       /* ... the next idle combat unit */
+    KEY_FASTER,         /* Modern controls, single player: game speed up (orders.c) */
+    KEY_SLOWER,         /* ... down */
+    KEY_PAUSE,          /* ... pause and resume */
+    KEY_COUNT
+};
+int         input_key(int id);                   /* the bound virtual key, 0 if none */
+int         input_key_is(int id, int vk);
+const char* input_key_ini_name(int id);          /* "attackmove" */
+const char* input_key_label(int id);             /* "Attack-move (Modern)" */
+void        input_key_set(int id, int vk);
+int         input_key_from_name(const char* v);  /* "A", "F10", "0x41": the VK, 0 for none, -1 unknown */
+void        input_key_to_name(int vk, char* out, int n);
+void        input_keys_load(const char* ini);    /* [keys] from ra2.ini; --bind still wins */

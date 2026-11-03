@@ -174,6 +174,13 @@ class Script:
         self.t += 1
         return self
 
+    def rclick(self, x, y, after=0, mods=''):
+        """A right click at game pixel x, y, mods as click's."""
+        self.t += after
+        self.args += ['--rclick', '%s%d,%d@%g' % (mods + '+' if mods else '', x, y, self.t)]
+        self.t += 1
+        return self
+
     def drag(self, x1, y1, x2, y2, after=0):
         """A band selection from x1, y1 to x2, y2 (game pixels)."""
         self.t += after
@@ -195,6 +202,17 @@ class Script:
         self.t += 1
         return self
 
+    def _args(self, *a):
+        self.args += list(a)
+        return self
+
+    def selftest_input(self, after=0):
+        """The presenter's input path, fed without a window (--selftest-input)."""
+        self.t += after
+        self.args += ['--selftest-input', '%g' % self.t]
+        self.t += 15
+        return self
+
 
 def S():
     return Script()
@@ -209,6 +227,8 @@ def S():
 #   expect 'ini':     RA2MD.INI values for the case's game folder, {section: {key: value}}
 #   expect 'size':    the picture in game is this (w, h)
 #   expect 'hd':      HD voxels on, and no 2x picture showed the units at 1x
+#   expect 'log':     {text: n}, lines the game or host prints at least n times
+#   expect 'nolog':   [text], lines it must never print
 CASES = {}
 
 
@@ -366,6 +386,101 @@ for side, emblem in [('allied', 1770), ('soviet', 1772)]:
          300, ingame=True, alive=True)
 
 
+# Attack-move in Modern controls (docs/modern-controls.md). Deploy the MCV (an
+# MCV in the selection cannot attack-move, and the game refuses the lot) and
+# band-select the starting units. The map's two starts are in its top-right
+# and bottom-left corners, and the game picks which is ours, so the units go
+# twice: by the screen edge to the top-right corner, A and a click on open
+# ground there, then the same to the bottom-left. One of the two walks crosses
+# the computer player's base. The same script without A is the control.
+# [hit] is the host's log of the damage the player's side deals, with the
+# attacker's mission: an attack-move stays mission 2 (Move) between fights, so
+# a hit with mission 2 is one on the way; a plain move never fires on the way.
+# The top-right click is open ground whichever base is there: (380, 330) hit
+# our own infantry when the top-right base was ours, and selected one GI.
+AM_LEGS = [((639, 0), (200, 110)), ((0, 479), (120, 380))]   # (screen edge, click)
+
+
+def attackmove(key):
+    s = (SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
+         .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10)
+         .click(236, 213, after=2).key('0x44', after=1)
+         .drag(8, 8, 464, 440, after=15))
+    for k, (edge, dest) in enumerate(AM_LEGS):
+        s = s.move(*edge, after=150 if k else 1).move(*dest, after=40)
+        if key:
+            s = s.key('0x41', after=1)
+        s = s.click(*dest, after=1)
+    s.args += ['--controls', 'modern']
+    return s
+
+
+VGA = {'Video': {'ScreenWidth': 640, 'ScreenHeight': 480}}
+if TARGET == 'game':
+    # Red Alert 2's skirmish map has eight starts and puts the computer player
+    # at a random one: no enemy on a fixed path, so only the order is checked.
+    case('skirmish-attackmove', attackmove(True), 720, ingame=True,
+         log={'[modern] attack-move order': 1}, ini=VGA)
+else:
+    case('skirmish-attackmove', attackmove(True), 720, ingame=True,
+         log={'[modern] attack-move order': 1, 'attacker mission 2 (': 1}, ini=VGA)
+    case('skirmish-move', attackmove(False), 720, ingame=True,
+         nolog=['[modern] attack-move order', 'attacker mission 2 ('], ini=VGA)
+
+
+# Shift-queued moves in Modern controls (docs/modern-controls.md): the
+# starting units, band-selected as for attack-move, get three points by
+# Shift+right-click a second apart, in three corners of the battlefield, so
+# the first leg is still under way when the others are added. The first is
+# the game's own move; the second and third wait in orders.c and go out, in
+# order, as each unit stops.
+def shiftqueue():
+    s = (SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
+         .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10)
+         .click(236, 213, after=2).key('0x44', after=1)
+         .drag(8, 8, 464, 440, after=15))
+    for x, y in [(30, 450), (440, 450), (440, 30)]:
+        s = s.rclick(x, y, mods='s')
+    s.args += ['--controls', 'modern']
+    return s
+
+
+case('skirmish-shiftqueue', shiftqueue(), 300, ingame=True, ini=VGA,
+     log={'[orders] route start at': 1, '[orders] route point 2 at': 1, '[orders] route point 3 at': 1,
+          ': point 2 at': 1, ': point 3 at': 1, 'route done at point 3': 1})
+# The idle keys (Modern controls): a fresh skirmish's starting units stand
+# idle, so the idle-unit key (Comma) selects one and a second press the next;
+# there is no harvester yet, and the idle-harvester key (Period) says so.
+# Then the speed keys (Minus, Plus) and Pause twice: a resume is logged only
+# when no game frame ran while paused (orders.c), so it proves the pause.
+case('skirmish-idlekeys', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
+     .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10)
+     .key('0xBC', after=5).key('0xBC', after=2).key('0xBE', after=2)
+     .key('0xBD', after=1).key('0xBB', after=1).key('0x13', after=1).key('0x13', after=4)
+     ._args('--controls', 'modern'),
+     160, ingame=True, ini=VGA,
+     log={'[orders] idle unit ': 2, ' selected': 2, '[orders] no idle harvester': 1,
+          '[orders] game speed ': 2, '[orders] paused at frame': 1, '[orders] resumed at frame': 1})
+
+
+# The presenter's input (docs/presenter.md), headless: --selftest-input feeds
+# its window procedure in a battle. The cursor lock clips and lets go (focus,
+# minimise, the settings menu) and clips again; a middle-drag reaches the game
+# as the right-drag scroll and the battlefield hook pans at once; a middle
+# click sends nothing; mouse 4 sends the attack-move key and mouse 5 H, bound
+# with --bind (ra2.ini is the player's). An unknown [keys] name is logged.
+case('input-selftest', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
+     .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10).selftest_input(after=2)
+     ._args('--controls', 'modern', '--bind', 'mouse4=A', '--bind', 'mouse5=H', '--bind', 'bogus=Q'),
+     240, ingame=True, ini=VGA,
+     log={'[input] cursor clip 160,0,1440,960': 4, '[input] cursor released (focus lost)': 2,
+          '[input] cursor released (minimised)': 1, '[input] cursor released (settings)': 1,
+          "[input] middle-drag: the game's right-drag from 320,240": 1, '[modern] middle-drag pan': 1,
+          '[input] middle click: nothing sent': 1, '[input] mouse4 -> key 0x41': 1,
+          '[modern] attack-move key 0x41': 1, '[input] mouse5 -> key 0x48': 1,
+          '[input] key down 0x48 posted to the game': 1, '[keys] unknown key bogus': 1, '[selftest] done': 1})
+
+
 def set_ini(text, section, key, value):
     """RA2MD.INI with [section] key=value set, the section added if missing."""
     lines = text.split(b'\r\n') if b'\r\n' in text else text.split(b'\n')
@@ -511,6 +626,11 @@ def run(name, args, seconds, expect, every, original=False):
             bad.append('"%s" %d times, wanted %d' % (text, got, n))
         elif n:
             seen.append('%s x%d' % (text.split()[-1].lower(), got))
+    # nolog: lines the run must not print (a control case: [hit] in a plain move)
+    for text in expect.get('nolog', []):
+        got = sum(text in l for l in lines)
+        if got:
+            bad.append('"%s" %d times, wanted none' % (text, got))
     if 'exit' in expect and code != expect['exit']:
         bad.append('expected exit %d' % expect['exit'])
     elif 'exit' not in expect and code not in (0, 4):

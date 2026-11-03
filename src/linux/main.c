@@ -108,6 +108,16 @@ int ra2_modern_shift_box_begin(void) { return 0; }
 void ra2_modern_shift_box_decide(void) {}
 void ra2_modern_shift_box_end(void) {}
 int ra2_modern_box_object(int selected) { (void)selected; return 1; }
+int ra2_modern_attack_move_request(void) { return 0; }
+void ra2_orders_click_cell(uint32_t cell) { (void)cell; }
+int ra2_orders_next(uint32_t *unit, uint32_t *cell) { (void)unit, (void)cell; return 0; }
+int ra2_orders_idle_request(void) { return 0; }
+uint32_t ra2_orders_idle_pick(int kind) { (void)kind; return 0; }
+void ra2_orders_idle_selected(int kind, uint32_t unit, int selected) { (void)kind, (void)unit, (void)selected; }
+int ra2_orders_loop(void) { return 0; }
+void ra2_hit_logged(uint32_t victim, uint32_t house, uint32_t player, uint32_t mission) {
+    (void)victim, (void)house, (void)player, (void)mission;
+}
 
 /* ---- game-specific answers ------------------------------------------------ */
 

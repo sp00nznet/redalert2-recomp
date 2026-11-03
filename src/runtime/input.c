@@ -9,6 +9,8 @@
  *   --drag x1,y1,x2,y2@s   a band selection, button down at one corner, up at the other
  *   --rdrag x1,y1,x2,y2@s  the same with the right button, held 1 s at the far end:
  *                          the game's right-drag scroll
+ *   --selftest-input s     the presenter's input path, fed without a window (present.c)
+ *   --bind name=key        a [keys] binding, over ra2.ini's (not a step)
  *
  * Civilization III's grammar and timing (civ3 src/runtime/input.c): s is
  * seconds after the main menu opened, events run in time order on one thread,
@@ -25,11 +27,13 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <commctrl.h>
+#include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "input.h"
+#include "present.h"
 
 typedef struct { char kind; int x, y, mods; double t; char text[64]; } ev_t;
 #define MAX_EV 256
@@ -37,11 +41,126 @@ static ev_t g_ev[MAX_EV];
 static int g_nev;
 static volatile LONG g_cx = -1, g_cy = -1;
 
+/* ---- [keys] ---------------------------------------------------------------
+ * The presenter's rebindable keys, in ra2.ini beside ra2.exe:
+ *
+ *   [keys]
+ *   attackmove=A
+ *   settings=F10
+ *   mouse4=H
+ *
+ * A value is a letter or digit, a key name below, or a virtual-key number
+ * ("0x41", "VK_0x41"); "none" or empty unbinds. A name the table does not
+ * have, and a value it cannot read, are logged and ignored. --bind name=value
+ * sets one for a run and wins over the file (a test cannot write ra2.ini: it
+ * is the player's, beside the shared build). */
+static struct { const char* name; const char* label; int def; volatile LONG vk; int forced; } k_keys[KEY_COUNT] = {
+    [KEY_ATTACKMOVE] = { "attackmove", "Attack-move (Modern)", 'A' },
+    [KEY_SETTINGS]   = { "settings",   "Settings menu",        VK_F10 },
+    [KEY_FULLSCREEN] = { "fullscreen", "Fullscreen",           VK_F11 },
+    [KEY_SCALING]    = { "scaling",    "Next scaling mode",    VK_F12 },
+    [KEY_MOUSE4]     = { "mouse4",     "Mouse button 4 sends", 0 },
+    [KEY_MOUSE5]     = { "mouse5",     "Mouse button 5 sends", 0 },
+    [KEY_IDLEHARV]   = { "idleharv",   "Next idle harvester (Modern)", VK_OEM_PERIOD },
+    [KEY_IDLEUNIT]   = { "idleunit",   "Next idle unit (Modern)",      VK_OEM_COMMA },
+    [KEY_FASTER]     = { "faster",     "Game speed up (Modern)",       VK_OEM_PLUS },
+    [KEY_SLOWER]     = { "slower",     "Game speed down (Modern)",     VK_OEM_MINUS },
+    [KEY_PAUSE]      = { "pause",      "Pause (Modern)",               VK_PAUSE },
+};
+static INIT_ONCE g_keys_once = INIT_ONCE_STATIC_INIT;
+
+static BOOL CALLBACK keys_init(PINIT_ONCE o, PVOID p, PVOID* c) {
+    (void)o, (void)p, (void)c;
+    for (int i = 0; i < KEY_COUNT; i++)
+        if (!k_keys[i].forced) k_keys[i].vk = k_keys[i].def;
+    return TRUE;
+}
+
+static const struct { const char* name; int vk; } k_vk_names[] = {
+    { "ESC", VK_ESCAPE }, { "ESCAPE", VK_ESCAPE }, { "SPACE", VK_SPACE }, { "TAB", VK_TAB },
+    { "ENTER", VK_RETURN }, { "RETURN", VK_RETURN }, { "BACKSPACE", VK_BACK }, { "BACK", VK_BACK },
+    { "INSERT", VK_INSERT }, { "DELETE", VK_DELETE }, { "HOME", VK_HOME }, { "END", VK_END },
+    { "PGUP", VK_PRIOR }, { "PAGEUP", VK_PRIOR }, { "PGDN", VK_NEXT }, { "PAGEDOWN", VK_NEXT },
+    { "LEFT", VK_LEFT }, { "RIGHT", VK_RIGHT }, { "UP", VK_UP }, { "DOWN", VK_DOWN },
+    { "PAUSE", VK_PAUSE }, { "CAPSLOCK", VK_CAPITAL }, { "TILDE", VK_OEM_3 }, { "BACKQUOTE", VK_OEM_3 },
+    { "MINUS", VK_OEM_MINUS }, { "PLUS", VK_OEM_PLUS }, { "EQUALS", VK_OEM_PLUS },
+    { "COMMA", VK_OEM_COMMA }, { "PERIOD", VK_OEM_PERIOD }, { "SLASH", VK_OEM_2 },
+    { "SEMICOLON", VK_OEM_1 }, { "QUOTE", VK_OEM_7 }, { "LBRACKET", VK_OEM_4 }, { "RBRACKET", VK_OEM_6 },
+    { "BACKSLASH", VK_OEM_5 }, { "NUMPAD+", VK_ADD }, { "NUMPAD-", VK_SUBTRACT },
+};
+
+int input_key_from_name(const char* v) {
+    char* end;
+    while (*v == ' ') v++;
+    if (!*v || !_stricmp(v, "none")) return 0;
+    if (!v[1] && isalnum((unsigned char)v[0])) return toupper((unsigned char)v[0]);
+    if (!_strnicmp(v, "VK_", 3)) v += 3;
+    if ((v[0] == 'F' || v[0] == 'f') && isdigit((unsigned char)v[1])) {
+        int n = atoi(v + 1);
+        if (n >= 1 && n <= 24) return VK_F1 + n - 1;
+    }
+    if (!_strnicmp(v, "NUMPAD", 6) && isdigit((unsigned char)v[6]) && !v[7]) return VK_NUMPAD0 + v[6] - '0';
+    for (size_t i = 0; i < sizeof k_vk_names / sizeof k_vk_names[0]; i++)
+        if (!_stricmp(v, k_vk_names[i].name)) return k_vk_names[i].vk;
+    long n = strtol(v, &end, 0);
+    return *end || n <= 0 || n > 0xFE ? -1 : (int)n;
+}
+
+void input_key_to_name(int vk, char* out, int n) {
+    if (!vk) _snprintf(out, n - 1, "none");
+    else if ((vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9')) _snprintf(out, n - 1, "%c", vk);
+    else if (vk >= VK_F1 && vk <= VK_F24) _snprintf(out, n - 1, "F%d", vk - VK_F1 + 1);
+    else {
+        size_t i;
+        for (i = 0; i < sizeof k_vk_names / sizeof k_vk_names[0] && k_vk_names[i].vk != vk; i++) {}
+        if (i < sizeof k_vk_names / sizeof k_vk_names[0]) _snprintf(out, n - 1, "%s", k_vk_names[i].name);
+        else _snprintf(out, n - 1, "0x%02X", vk);
+    }
+    out[n - 1] = 0;
+}
+
+/* name=value; forced: from --bind, which the file does not override. */
+static void key_bind(const char* spec, int forced) {
+    char name[32];
+    const char* eq = strchr(spec, '=');
+    InitOnceExecuteOnce(&g_keys_once, keys_init, NULL, NULL);
+    if (!eq || eq - spec >= (int)sizeof name) { fprintf(stderr, "[keys] \"%s\": not name=key, ignored\n", spec); return; }
+    memcpy(name, spec, eq - spec), name[eq - spec] = 0;
+    int id;
+    for (id = 0; id < KEY_COUNT && _stricmp(name, k_keys[id].name); id++) {}
+    if (id == KEY_COUNT) { fprintf(stderr, "[keys] unknown key %s, ignored\n", name); return; }
+    int vk = input_key_from_name(eq + 1);
+    if (vk < 0) { fprintf(stderr, "[keys] %s=%s: not a key, ignored\n", name, eq + 1); return; }
+    if (k_keys[id].forced && !forced) return;
+    k_keys[id].forced |= forced;
+    InterlockedExchange(&k_keys[id].vk, vk);
+    fprintf(stderr, "[keys] %s=0x%X%s\n", k_keys[id].name, vk, forced ? " (--bind)" : "");
+}
+
+void input_keys_load(const char* ini) {
+    static char sec[4096];
+    InitOnceExecuteOnce(&g_keys_once, keys_init, NULL, NULL);
+    DWORD n = GetPrivateProfileSectionA("keys", sec, sizeof sec, ini);
+    for (const char* p = sec; p < sec + n && *p; p += strlen(p) + 1) key_bind(p, 0);
+}
+
+int input_key(int id) {
+    InitOnceExecuteOnce(&g_keys_once, keys_init, NULL, NULL);
+    return id >= 0 && id < KEY_COUNT ? (int)k_keys[id].vk : 0;
+}
+int input_key_is(int id, int vk) { return vk && input_key(id) == vk; }
+const char* input_key_ini_name(int id) { return id >= 0 && id < KEY_COUNT ? k_keys[id].name : ""; }
+const char* input_key_label(int id) { return id >= 0 && id < KEY_COUNT ? k_keys[id].label : ""; }
+void input_key_set(int id, int vk) {
+    InitOnceExecuteOnce(&g_keys_once, keys_init, NULL, NULL);
+    if (id >= 0 && id < KEY_COUNT) InterlockedExchange(&k_keys[id].vk, vk);
+}
+
 int input_arg(int argc, char** argv, int i) {
     if (i + 1 >= argc || g_nev >= MAX_EV) return 0;
     ev_t e = { 0 };
     const char* a = argv[i + 1];
-    if (!strcmp(argv[i], "--move") || !strcmp(argv[i], "--click")) {
+    if (!strcmp(argv[i], "--move") || !strcmp(argv[i], "--click") || !strcmp(argv[i], "--rclick")) {
         const char* plus = strchr(a, '+');
         if (plus) {
             for (const char* m = a; m < plus; m++)
@@ -49,7 +168,7 @@ int input_arg(int argc, char** argv, int i) {
             a = plus + 1;
         }
         if (sscanf(a, "%d,%d@%lf", &e.x, &e.y, &e.t) != 3) return 0;
-        e.kind = argv[i][2];                    /* 'm' or 'c' */
+        e.kind = argv[i][2] == 'r' ? 'R' : argv[i][2];   /* 'm', 'c' or 'R' */
     } else if (!strcmp(argv[i], "--drag") || !strcmp(argv[i], "--rdrag")) {
         int x2, y2;
         if (sscanf(a, "%d,%d,%d,%d@%lf", &e.x, &e.y, &x2, &y2, &e.t) != 5) return 0;
@@ -84,6 +203,12 @@ int input_arg(int argc, char** argv, int i) {
         }
         if (sscanf(a, "%i@%lf", &e.x, &e.t) != 2) return 0;
         e.kind = 'k';
+    } else if (!strcmp(argv[i], "--selftest-input")) {
+        if (sscanf(a, "%lf", &e.t) != 1) return 0;
+        e.kind = 't';
+    } else if (!strcmp(argv[i], "--bind")) {
+        key_bind(a, 1);
+        return 2;
     } else return 0;
     g_ev[g_nev++] = e;
     return 2;
@@ -167,7 +292,12 @@ static int seen_since(const char* text, DWORD since) {
  * menus are 800x600 and a game 640x480: a cursor left on a menu button at
  * x=720 was past the right edge in game, and the game's edge scrolling ran the
  * view to the black margin of the map and kept it there (docs/testing.md). */
+static volatile LONG g_mode_w = 800, g_mode_h = 600;
+void input_mode(int* w, int* h) { *w = g_mode_w, *h = g_mode_h; }
+
 void input_mode_changed(int w, int h) {
+    InterlockedExchange(&g_mode_w, w);
+    InterlockedExchange(&g_mode_h, h);
     if (g_cx >= w) InterlockedExchange(&g_cx, w - 1);
     if (g_cy >= h) InterlockedExchange(&g_cy, h - 1);
 }
@@ -187,7 +317,9 @@ static int g_live;
 static volatile LONG g_live_buttons;      /* MK_LBUTTON | MK_RBUTTON | MK_MBUTTON */
 static volatile LONG g_live_right_as_left;
 static volatile LONG g_live_swap_left_right;
+static volatile LONG g_selftest_live;      /* a scripted run's buttons include the presenter's */
 void input_live(int on) { g_live = on; }
+void input_selftest_live(int on) { InterlockedExchange(&g_selftest_live, on); }
 /* The mouse buttons as the presenter's window saw them: the game's controls
  * read VK_LBUTTON as well as the messages, and a click the presenter got
  * (from a mouse, a pen, a touch screen or a test driver) has to agree. */
@@ -271,13 +403,20 @@ SHORT input_key_state(int vk, SHORT real) {
     }
     if (!g_nev) return real;
     if (vk == VK_LBUTTON) InterlockedIncrement(&g_lb_reads);
+    LONG mods = g_mods;
+    /* --selftest-input feeds the presenter's window procedure: the buttons
+     * it forwards (a middle-drag's right button) are held as a script's. */
+    if (g_selftest_live) {
+        LONG mk = g_live_buttons;
+        mods |= (mk & MK_LBUTTON ? 8 : 0) | (mk & MK_RBUTTON ? 16 : 0);
+    }
     int bit = vk == VK_CONTROL || vk == VK_LCONTROL || vk == VK_RCONTROL ? 1
             : vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT ? 2
             : vk == VK_MENU || vk == VK_LMENU || vk == VK_RMENU ? 4
             : vk == VK_LBUTTON ? 8 : vk == VK_RBUTTON ? 16 : 0;
     /* A scripted run answers every key from the script: the console's (or the
      * RDP phone's) real keyboard never leaks into a test. */
-    return (bit && (g_mods & bit)) ? (SHORT)0x8000 : 0;
+    return (bit && (mods & bit)) ? (SHORT)0x8000 : 0;
 }
 
 /* Wait until the game has read the left button twice more, up to 1 s. */
@@ -295,6 +434,18 @@ static void click(HWND h, LPARAM lp) {
     lb_seen();
     input_post_mouse(h, WM_LBUTTONUP, 0, lp);
     InterlockedAnd(&g_mods, ~8);
+    lb_seen();
+}
+
+/* The same with the right button. Modern controls hand a right click to the
+ * game as a left one (present.c), so the left button reads held too. */
+static void rclick(HWND h, LPARAM lp) {
+    InterlockedOr(&g_mods, 8 | 16);
+    input_post_mouse(h, WM_RBUTTONDOWN, MK_RBUTTON, lp);
+    Sleep(250);
+    lb_seen();
+    input_post_mouse(h, WM_RBUTTONUP, 0, lp);
+    InterlockedAnd(&g_mods, ~(8 | 16));
     lb_seen();
 }
 
@@ -451,10 +602,17 @@ static DWORD WINAPI script(LPVOID unused) {
                     (GetTickCount() - w0) / 1000.0, e->x, *(volatile uint32_t*)(uintptr_t)e->x);
             continue;
         }
+        if (e->kind == 't') {
+            fprintf(stderr, "[input] %.1fs selftest\n", e->t);
+            present_selftest_input();
+            continue;
+        }
         if (e->kind == 'k') {
             static const int mvk[] = { VK_CONTROL, VK_SHIFT, VK_MENU };
             fprintf(stderr, "[input] %.1fs key %s%s%s0x%X\n", e->t, e->y & 1 ? "Ctrl-" : "",
                     e->y & 2 ? "Shift-" : "", e->y & 4 ? "Alt-" : "", e->x);
+            /* the presenter's keys in Modern controls (attack-move) */
+            if (!e->y && ra2_modern_key(e->x, 0)) continue;
             for (int m = 0; m < 3; m++)
                 if (e->y & 1 << m) PostMessageA(h, WM_KEYDOWN, mvk[m], 1);
             InterlockedExchange(&g_mods, e->y);
@@ -495,18 +653,19 @@ static DWORD WINAPI script(LPVOID unused) {
             continue;
         }
         LPARAM lp = MAKELPARAM(e->x, e->y);
-        fprintf(stderr, "[input] %.1fs %s %s%d,%d\n", e->t, e->kind == 'c' ? "click" : "move",
+        fprintf(stderr, "[input] %.1fs %s %s%d,%d\n", e->t, e->kind == 'c' ? "click" : e->kind == 'R' ? "right click" : "move",
                 e->mods & 1 ? "Ctrl-" : e->mods & 2 ? "Shift-" : e->mods & 4 ? "Alt-" : "", e->x, e->y);
         InterlockedExchange(&g_cx, e->x);
         InterlockedExchange(&g_cy, e->y);
         input_post_mouse(h, WM_MOUSEMOVE, 0, lp);
-        if (e->kind == 'c') {
+        if (e->kind == 'c' || e->kind == 'R') {
             static const int mvk[] = { VK_CONTROL, VK_SHIFT, VK_MENU };
             for (int m = 0; m < 3; m++)
                 if (e->mods & 1 << m) PostMessageA(h, WM_KEYDOWN, mvk[m], 1);
             InterlockedOr(&g_mods, e->mods);
             Sleep(100);
-            click(h, lp);
+            if (e->kind == 'R') rclick(h, lp);
+            else click(h, lp);
             InterlockedAnd(&g_mods, ~e->mods);
             for (int m = 0; m < 3; m++)
                 if (e->mods & 1 << m) PostMessageA(h, WM_KEYUP, mvk[m], 0xC0000001);
