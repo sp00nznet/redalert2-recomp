@@ -20,7 +20,7 @@ build\ra2.exe --run --classic                     # the original display
 | F10, or right-click beside the picture | the settings menu |
 
 F10, F11 and F12 can be rebound, and mouse buttons 4 and 5 given a key, in
-`[keys]` (see [Input](#input)).
+`[keys]` or on the F10 menu's **Keys** page (see [Input](#input)).
 
 The F10 menu includes **Controls**. **Classic** keeps the original games'
 controls. **Modern** uses left-click to select, left-click on open ground to
@@ -139,10 +139,16 @@ sidebar out shorter, and the presenter draws it larger.
   the font's metrics with them. Scaling only this text would take drawing it
   to a surface of its own and composing that larger, as the sidebar is; that
   is left for later.
+- **The radar** is the top 158 lines of the strip, above the sidebar's
+  rect, so it scales with the sidebar with no site of its own: `ui_compose`
+  draws the strip's top 1/*s* from its first row, the radar's 168x158
+  becomes 336x316 at 2x, and a click on it maps back as for the sidebar.
 - **Headless.** `RA2_UI_SCALE=2` sets the scale without a `ra2.ini`;
   `tools/playtest.py ui-scale-2x` runs a skirmish with the 2x layout and
   checks the sidebar's and the view's log lines and the game's own
-  `Set_View_Dimensions(0,0,3104,1376)`.
+  `Set_View_Dimensions(0,0,3104,1376)`. Its `--selftest-input` step composes
+  a made-up frame through `ui_compose` and checks the radar: drawn 336x316 at
+  3104,0, and its centre reaching the game at 3188,79.
 
 ## Input
 
@@ -180,6 +186,13 @@ sidebar out shorter, and the presenter draws it larger.
   A value is a letter or digit, a key name (`F1`-`F24`, `Esc`, `Space`, `Tab`,
   `Enter`, `Home`, `End`, `PgUp`, `PgDn`, the arrows, `Numpad0`-`Numpad9`,
   `Pause`, `Tilde`, ...), or a virtual-key number (`0x41`); `none` unbinds.
+  The F10 menu's **Keys** page lists every row with its key; picking one
+  opens a small box over the picture that takes the next key pressed
+  (Backspace: none, Esc or a click: cancel). The key works at once and is
+  written to `[keys]` by name. *Reset all to the defaults* puts the table's
+  own back. Modifiers alone are not keys, so the box waits past them; two rows
+  may share a key, as `mouse4=A` and `attackmove=A` do on purpose, and the
+  page does not stop a clash between two presenter keys.
   A mouse button's key goes through the same path as the keyboard's, so
   `mouse4=A` arms attack-move and `mouse5=F10` opens the settings. A name the
   table does not have, and a value it cannot read, are logged
@@ -189,9 +202,9 @@ sidebar out shorter, and the presenter draws it larger.
   The table is `k_keys` in `src/runtime/input.c` with its IDs (`KEY_*`) in
   `input.h`. A feature that needs a key adds an ID and a row (name, label,
   default) and asks `input_key_is(KEY_..., vk)` where it handles keys; the
-  loader, `--bind`, the logging and the F10 menu labels come with it, and
-  `input_key_ini_name`, `input_key_label`, `input_key_set` and
-  `input_key_to_name` are there for a keybinding page.
+  loader, `--bind`, the logging, the F10 menu labels and a row on the Keys
+  page come with it (`keys_page` in `present.c` walks the table; it has no
+  list of its own). `input_key_save` writes one row back.
 - **Scroll speed** (`edgescroll=`, `keyscroll=`): not done here. Edge and key
   scrolling move the view by a step per game frame, from the game's own
   `ScrollRate` option (an index into its speed table: `OptionsClass` +0x10,
@@ -224,7 +237,17 @@ clips four times and lets go on focus loss, minimise and the settings menu; a
 middle-drag reaches the game as the right-drag (`[modern] middle-drag pan`
 from the battlefield hook, on the game's thread); a middle click sends nothing;
 mouse 4 (`--bind mouse4=A`) arms attack-move and mouse 5 (`--bind mouse5=H`)
-posts H to the game; and an unknown `[keys]` name is logged.
+posts H to the game; and an unknown `[keys]` name is logged. Then the Keys
+page: it lists the table (`[keys] page: ...`), mouse 4 is rebound to G there
+(the box answers G in the self-test), `[keys] mouse4=G` is saved, and mouse 4
+sends G. The case runs with an `ra2.ini` of its own, empty at start
+(`RA2_PRESENT_INI`, set by the case's `ra2ini` expectation), and checks the
+file afterwards; without that variable the self-test leaves the page out,
+since the `ra2.ini` beside a shared build is the player's.
+
+With a UI scale on (`RA2_UI_SCALE=2`) the self-test also composes a made-up
+frame and logs the radar's size in the picture and where a click on its
+centre reaches the game (`ui-scale-2x`).
 
 ## How it fits together
 

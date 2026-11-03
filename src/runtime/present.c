@@ -156,6 +156,7 @@ static HWND g_present_hwnd;              /* this window, for present_real_mouse 
 #define WM_REAL_MOUSE (WM_APP + 0x10)    /* + (message - WM_MOUSEFIRST): lParam is a screen point */
 static POINT g_capture_off;              /* game point -> that window's client */
 static int g_selftest;                   /* --selftest-input: no window, the real cursor left alone */
+static int g_selftest_pick, g_selftest_press;   /* ... the F10 menu's choice, and the key pressed to rebind */
 
 /* ---- attack-move (docs/modern-controls.md) --------------------------------
  * Both games have one: the order Yuri's Revenge's command bar button gives
@@ -785,6 +786,8 @@ static void settings_path(void) {
     GetModuleFileNameA(NULL, g_ini, MAX_PATH);
     slash = strrchr(g_ini, '\\');
     strcpy_s(slash ? slash + 1 : g_ini, MAX_PATH - (slash ? (slash + 1 - g_ini) : 0), "ra2.ini");
+    /* headless (tools/playtest.py): a case's own file, not the player's beside the shared build */
+    if (getenv("RA2_PRESENT_INI") && *getenv("RA2_PRESENT_INI")) strcpy_s(g_ini, MAX_PATH, getenv("RA2_PRESENT_INI"));
 }
 
 /* HD vehicles are off by default under Wine (CrossOver on a Mac): there they
@@ -839,8 +842,110 @@ static void set_game_resolution(int w, int h) {
 }
 
 enum { ID_SCALE = 100, ID_BARS = 200, ID_FULL = 300, ID_RES = 400, ID_HDVOX = 500,
-       ID_MOD = 600, ID_CONTROLS = 700, ID_UI = 800, ID_CURSOR_LOCK = 710 };
+       ID_MOD = 600, ID_CONTROLS = 700, ID_UI = 800, ID_CURSOR_LOCK = 710, ID_KEYS = 900, ID_KEYS_RESET = 990 };
 #define MAX_MENU_MODS 64
+
+/* ---- the keybinding page (F10 > Keys) --------------------------------------
+ * One row per [keys] entry, straight from input.c's table, so a key a later
+ * feature adds there shows up here with nothing else to do. Picking a row
+ * asks for the new key in a small box over the picture: the next key pressed
+ * is the binding, Backspace clears it, Esc or a click cancels. The binding is
+ * live at once and written to ra2.ini [keys]. The box is a window of its own
+ * with its own loop, like the menu, on the presenter's thread; modifiers
+ * alone are not keys ([keys] binds plain keys), so it waits past them. */
+static volatile int g_capture_vk;                /* 0 waiting, -1 cancelled, -2 cleared, else the key */
+
+static LRESULT CALLBACK capture_proc(HWND hw, UINT m, WPARAM w, LPARAM l) {
+    switch (m) {
+    case WM_KEYDOWN: case WM_SYSKEYDOWN:
+        if (w == VK_SHIFT || w == VK_CONTROL || w == VK_MENU || w == VK_LWIN || w == VK_RWIN) return 0;
+        g_capture_vk = w == VK_ESCAPE ? -1 : w == VK_BACK ? -2 : (int)w;
+        return 0;
+    case WM_SYSCHAR: case WM_CHAR:
+        return 0;                                /* no beep for Alt+key */
+    case WM_LBUTTONDOWN: case WM_RBUTTONDOWN: case WM_MBUTTONDOWN:
+        g_capture_vk = -1;
+        return 0;
+    case WM_ACTIVATE:
+        if (LOWORD(w) == WA_INACTIVE && !g_capture_vk) g_capture_vk = -1;   /* Alt-Tab away */
+        break;
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        RECT r;
+        char text[160];
+        HDC dc = BeginPaint(hw, &ps);
+        GetClientRect(hw, &r);
+        FillRect(dc, &r, (HBRUSH)GetStockObject(BLACK_BRUSH));
+        GetWindowTextA(hw, text, sizeof text);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, RGB(255, 255, 255));
+        SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
+        DrawTextA(dc, text, -1, &r, DT_CENTER | DT_VCENTER | DT_WORDBREAK);
+        EndPaint(hw, &ps);
+        return 0;
+    }
+    }
+    return DefWindowProcA(hw, m, w, l);
+}
+
+/* The key for row id: a VK, 0 to clear it, -1 if the player cancelled. */
+static int capture_key(HWND owner, int id) {
+    if (g_selftest) {
+        fprintf(stderr, "[keys] page: press a key for %s (self-test: 0x%X)\n", input_key_ini_name(id), g_selftest_press);
+        return g_selftest_press;
+    }
+    static ATOM cls;
+    if (!cls) {
+        WNDCLASSA wc = { 0 };
+        wc.lpfnWndProc = capture_proc;
+        wc.hInstance = GetModuleHandleA(NULL);
+        wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+        wc.lpszClassName = "RA2RecompKeyCapture";
+        cls = RegisterClassA(&wc);
+    }
+    char text[160];
+    _snprintf(text, sizeof text - 1, "%s\n\nPress the new key.\nBackspace: none.   Esc: cancel.", input_key_label(id));
+    text[sizeof text - 1] = 0;
+    RECT o;
+    GetWindowRect(owner, &o);
+    int bw = 360, bh = 110;
+    HWND box = CreateWindowExA(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, "RA2RecompKeyCapture", text, WS_POPUP | WS_BORDER,
+                               (o.left + o.right - bw) / 2, (o.top + o.bottom - bh) / 2, bw, bh, owner, NULL,
+                               GetModuleHandleA(NULL), NULL);
+    if (!box) return -1;
+    g_capture_vk = 0;
+    ShowWindow(box, SW_SHOW);
+    SetForegroundWindow(box);
+    SetFocus(box);
+    MSG msg;
+    while (!g_capture_vk) {
+        if (GetMessageA(&msg, NULL, 0, 0) <= 0) { PostQuitMessage((int)msg.wParam); break; }   /* for the outer loop */
+        TranslateMessage(&msg);
+        DispatchMessageA(&msg);
+    }
+    DestroyWindow(box);
+    SetForegroundWindow(owner);
+    return g_capture_vk == -2 ? 0 : g_capture_vk ? g_capture_vk : -1;
+}
+
+static void keys_page(HMENU page) {
+    char lbl[96], key[16];
+    for (int i = 0; i < KEY_COUNT; i++) {
+        input_key_to_name(input_key(i), key, sizeof key);
+        _snprintf(lbl, sizeof lbl - 1, "%s\t%s", input_key_label(i), key), lbl[sizeof lbl - 1] = 0;
+        AppendMenuA(page, MF_STRING, ID_KEYS + i, lbl);
+        if (g_selftest) fprintf(stderr, "[keys] page: %s = %s (%s)\n", input_key_ini_name(i), key, input_key_label(i));
+    }
+    AppendMenuA(page, MF_SEPARATOR, 0, NULL);
+    AppendMenuA(page, MF_STRING, ID_KEYS_RESET, "Reset all to the defaults");
+}
+
+static void keys_rebind(HWND hw, int id) {
+    int vk = capture_key(hw, id);
+    if (vk < 0) { fprintf(stderr, "[keys] %s: rebind cancelled\n", input_key_ini_name(id)); return; }
+    input_key_set(id, vk);
+    input_key_save(id, g_ini);
+}
 
 static void settings_menu(HWND hw) {             /* at the mouse */
     POINT at;
@@ -849,6 +954,7 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     HMENU controls = CreatePopupMenu();
     HMENU hd = CreatePopupMenu();
     HMENU ui = CreatePopupMenu();
+    HMENU keys = CreatePopupMenu();
     static char mod_names[MAX_MENU_MODS][128];
     int nmods = mods_list(mod_names, MAX_MENU_MODS);
     static const char* const scale_label[NMODES] = { "Sharp (default)", "Smooth", "CRT", "Nearest", "Integer" };
@@ -886,6 +992,8 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     AppendMenuA(controls, MF_STRING | (cursor_lock_on() ? MF_CHECKED : 0), ID_CURSOR_LOCK,
                 "Keep the mouse in the picture in battle");
     AppendMenuA(m, MF_POPUP, (UINT_PTR)controls, "Controls");
+    keys_page(keys);
+    AppendMenuA(m, MF_POPUP, (UINT_PTR)keys, "Keys (click one to rebind)");
     AppendMenuA(ui, MF_STRING | (g_ui_scale == 1 ? MF_CHECKED : 0), ID_UI + 1, "Off");
     AppendMenuA(ui, MF_STRING | (g_ui_scale == 2 ? MF_CHECKED : 0), ID_UI + 2, "2x (game resolution 1200 lines or more)");
     AppendMenuA(ui, MF_STRING | (g_ui_scale == 3 ? MF_CHECKED : 0), ID_UI + 3, "3x (1800 lines or more)");
@@ -901,10 +1009,13 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     GetCursorPos(&at);
     g_in_settings = 1;                                        /* the menu needs the whole screen */
     update_clip(hw);
-    int cmd = g_selftest ? 0 : TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, at.x, at.y, 0, hw, NULL);
+    int cmd = g_selftest ? g_selftest_pick : TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, at.x, at.y, 0, hw, NULL);
     if (g_selftest) fprintf(stderr, "[input] settings menu (self-test: not shown)\n");
-    g_in_settings = 0;
     DestroyMenu(m);                                           /* and its submenus */
+    if (cmd >= ID_KEYS && cmd < ID_KEYS + KEY_COUNT) keys_rebind(hw, cmd - ID_KEYS);   /* the mouse still free */
+    else if (cmd == ID_KEYS_RESET)
+        for (int i = 0; i < KEY_COUNT; i++) input_key_set(i, input_key_default(i)), input_key_save(i, g_ini);
+    g_in_settings = 0;
     if (cmd >= ID_SCALE && cmd < ID_SCALE + NMODES) g_mode = cmd - ID_SCALE;
     else if (cmd == ID_BARS || cmd == ID_BARS + 1) g_bars = cmd - ID_BARS;
     else if (cmd == ID_FULL) set_fullscreen(hw, !g_fullscreen);
@@ -1267,6 +1378,35 @@ static void st_mouse(UINT m, WPARAM w, int x, int y, int ms) {
     Sleep(ms);
 }
 
+/* The radar under UI scale: it is the top 158 lines of the sidebar's strip,
+ * which ui_compose draws s times larger from the strip's first row, so it
+ * scales with the sidebar and needs no patch of its own. Checked here on a
+ * made-up frame (headless, the presenter draws no pictures): every strip pixel
+ * holds its own x, y, the composed picture must show the radar s times larger
+ * at the top right, and a click on its centre must reach the game there. */
+static void selftest_ui_radar(int gw, int gh) {
+    int s = ui_setting(), base = gw - SIDEBAR_W;
+    if (!ui_fits(gh, s) || base <= 0) return;
+    uint32_t* f = (uint32_t*)calloc((size_t)gw * gh, 4);
+    if (!f) return;
+    for (int y = 0; y < gh; y++)
+        for (int x = 0; x < SIDEBAR_W; x++) f[(size_t)y * gw + base + x] = 0xFF000000u | (uint32_t)y << 8 | x;
+    LONG live = g_ui_live, live_h = g_ui_live_h, was_gw = g_gw, was_gh = g_gh;
+    InterlockedExchange(&g_ui_live, s), InterlockedExchange(&g_ui_live_h, gh);
+    const uint32_t* out;
+    int ow = ui_compose(f, gw, gh, &out), rows = 0, cols = 0;
+    while (rows < gh && ((out[(size_t)rows * ow + base] >> 8) & 0xFFFF) < UI_RADAR_H) rows++;
+    while (base + cols < ow && (out[base + cols] & 0xFF) < SIDEBAR_W) cols++;
+    InterlockedExchange(&g_gw, ow), InterlockedExchange(&g_gh, gh);
+    POINT c = { base + cols / 2, rows / 2 };
+    c = ui_to_game(c);
+    fprintf(stderr, "[selftest] UI scale %dx: radar %dx%d drawn as %dx%d at %d,0; its centre maps to game %ld,%ld\n",
+            s, SIDEBAR_W, UI_RADAR_H, cols, rows, base, c.x, c.y);
+    InterlockedExchange(&g_ui_live, live), InterlockedExchange(&g_ui_live_h, live_h);
+    InterlockedExchange(&g_gw, was_gw), InterlockedExchange(&g_gh, was_gh), InterlockedExchange(&g_ui_drawn, 1);
+    free(f);
+}
+
 void present_selftest_input(void) {
     int gw, gh;
     input_mode(&gw, &gh);
@@ -1306,7 +1446,21 @@ void present_selftest_input(void) {
     st_mouse(WM_XBUTTONDOWN, MAKEWPARAM(MK_XBUTTON2, XBUTTON2), cx, cy, 150);
     st_mouse(WM_XBUTTONUP, MAKEWPARAM(0, XBUTTON2), cx, cy, 500);
 
+    /* The F10 keybinding page: its rows from the [keys] table, then mouse 4
+     * rebound to G there. It is saved to ra2.ini (the case's own, from
+     * RA2_PRESENT_INI) and mouse 4 sends G from then on. Without a file of
+     * the case's own it is left out: the player's ra2.ini is not a test's. */
+    if (getenv("RA2_PRESENT_INI")) {
+        settings_path();                     /* headless, present_start never ran */
+        g_selftest_pick = ID_KEYS + KEY_MOUSE4, g_selftest_press = 'G';
+        wndproc(NULL, input_key(KEY_SETTINGS) == VK_F10 ? WM_SYSKEYDOWN : WM_KEYDOWN, input_key(KEY_SETTINGS), 1);
+        g_selftest_pick = g_selftest_press = 0;
+        st_mouse(WM_XBUTTONDOWN, MAKEWPARAM(MK_XBUTTON1, XBUTTON1), cx, cy, 150);
+        st_mouse(WM_XBUTTONUP, MAKEWPARAM(0, XBUTTON1), cx, cy, 500);
+    }
+
     wndproc(NULL, WM_ACTIVATE, WA_INACTIVE, 0);
+    selftest_ui_radar(gw, gh);
     input_selftest_live(0);
     fprintf(stderr, "[selftest] done\n");
 }

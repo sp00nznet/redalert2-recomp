@@ -221,6 +221,8 @@ def S():
 #   expect 'size':    the picture in game is this (w, h)
 #   expect 'hd':      HD voxels on, and no 2x picture showed the units at 1x
 #   expect 'env':     environment variables for the host, {name: value}
+#   expect 'ra2ini':  the presenter's ra2.ini after the run, {section: {key: value}}; the case
+#                     gets its own, empty at start (RA2_PRESENT_INI), not the player's
 #   expect 'log':     {text: n}, lines the game or host prints at least n times
 #   expect 'nolog':   [text], lines it must never print
 CASES = {}
@@ -428,6 +430,8 @@ else:
 # as the right-drag scroll and the battlefield hook pans at once; a middle
 # click sends nothing; mouse 4 sends the attack-move key and mouse 5 H, bound
 # with --bind (ra2.ini is the player's). An unknown [keys] name is logged.
+# Then the F10 keybinding page: it lists the [keys] table, mouse 4 is rebound
+# to G there, the case's own ra2.ini gets [keys] mouse4=G, and mouse 4 sends G.
 case('input-selftest', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
      .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10).selftest_input(after=2)
      ._args('--controls', 'modern', '--bind', 'mouse4=A', '--bind', 'mouse5=H', '--bind', 'bogus=Q'),
@@ -437,7 +441,11 @@ case('input-selftest', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 
           "[input] middle-drag: the game's right-drag from 320,240": 1, '[modern] middle-drag pan': 1,
           '[input] middle click: nothing sent': 1, '[input] mouse4 -> key 0x41': 1,
           '[modern] attack-move key 0x41': 1, '[input] mouse5 -> key 0x48': 1,
-          '[input] key down 0x48 posted to the game': 1, '[keys] unknown key bogus': 1, '[selftest] done': 1})
+          '[input] key down 0x48 posted to the game': 1, '[keys] unknown key bogus': 1,
+          '[keys] page: mouse4 = A (Mouse button 4 sends)': 1, '[keys] page: settings = F10': 1,
+          '[keys] mouse4=G saved to': 1, '[input] mouse4 -> key 0x47': 1,
+          '[input] key down 0x47 posted to the game': 1, '[selftest] done': 1},
+     ra2ini={'keys': {'mouse4': 'G'}})
 
 
 def set_ini(text, section, key, value):
@@ -477,12 +485,16 @@ for w, h in RES:
 # sidebar adds, the sidebar laid out in the top half of its strip, and the
 # view 32 lines shorter for the bar under it drawn 2x (1440 - 64). Headless
 # there is no presenter to compose it; the case shows the layout and a
-# battle that runs with it.
+# battle that runs with it, and --selftest-input composes a made-up frame:
+# the radar (the strip's top 158 lines) drawn 2x at the top right, and a
+# click on its centre reaching the game's radar.
 case('ui-scale-2x', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
-     .waitlog(INGAME).move(1556, 720, after=2).key('0x48', after=10),
+     .waitlog(INGAME).move(1556, 720, after=2).key('0x48', after=10).selftest_input(after=2),
      180, ingame=True, size=(3272, 1440), ini={'Video': {'ScreenWidth': 3272, 'ScreenHeight': 1440}},
      env={'RA2_UI_SCALE': '2'}, log={'[present] UI scale 2x: sidebar': 1, '[present] UI scale 2x: view': 1,
-                                     'Set_View_Dimensions(0,0,3104,1376)': 1})
+                                     'Set_View_Dimensions(0,0,3104,1376)': 1,
+                                     '[selftest] UI scale 2x: radar 168x158 drawn as 336x316 at 3104,0; '
+                                     'its centre maps to game 3188,79': 1})
 case('res-campaign-1920x1080', SP().press(SINGLE, 'NewCampaign', CAMPAIGN).press(CAMPAIGN, 1770)
      .waitlog(INGAME).move(880, 540, after=2).key('0x48', after=10), 300, ingame=True, alive=True,
      size=(1920, 1080), ini={'Video': {'ScreenWidth': 1920, 'ScreenHeight': 1080}})
@@ -526,6 +538,11 @@ def run(name, args, seconds, expect, every, original=False):
     os.makedirs(d, exist_ok=True)
     game = farm(os.path.join(d, 'game'), expect.get('ini'))
     mp4, log = os.path.join(d, 'run.mp4'), os.path.join(d, 'run.log')
+    env = {**os.environ, **expect.get('env', {})}
+    ini = os.path.join(d, 'ra2.ini')
+    if 'ra2ini' in expect:
+        open(ini, 'w').close()
+        env['RA2_PRESENT_INI'] = host_path(ini)
     cmd = WINE + [HOST, '--headless', '--run', '--mute', '--debuglog', '--watchdog', str(seconds),
                   '--record', host_path(mp4), '--exe', host_path(os.path.join(game, GAME_EXE)),
                   '--game', host_path(game)] + args
@@ -536,7 +553,7 @@ def run(name, args, seconds, expect, every, original=False):
     with open(log, 'w', errors='replace') as f, (IPX if lan else contextlib.nullcontext()):
         try:
             code = subprocess.run(cmd, cwd=ROOT, stdout=f, stderr=subprocess.STDOUT,
-                                  env={**os.environ, **expect.get('env', {})}, timeout=seconds + 300).returncode
+                                  env=env, timeout=seconds + 300).returncode
         except subprocess.TimeoutExpired:
             code = 'timeout'
     text = open(log, errors='replace').read()
@@ -595,6 +612,22 @@ def run(name, args, seconds, expect, every, original=False):
             bad.append('"%s" %d times, wanted %d' % (text, got, n))
         elif n:
             seen.append('%s x%d' % (text.split()[-1].lower(), got))
+    # ra2ini: what the presenter saved (the F10 keybinding page)
+    if 'ra2ini' in expect:
+        saved, sec = {}, None
+        for l in open(ini, errors='replace').read().splitlines():
+            l = l.strip()
+            if l.startswith('['):
+                sec = l.strip('[]').lower()
+            elif '=' in l and sec:
+                saved.setdefault(sec, {})[l.split('=')[0].strip().lower()] = l.split('=', 1)[1].strip()
+        for sec, kv in expect['ra2ini'].items():
+            for k, v in kv.items():
+                got = saved.get(sec.lower(), {}).get(k.lower())
+                if got != str(v):
+                    bad.append('ra2.ini [%s] %s=%s, wanted %s' % (sec, k, got, v))
+                else:
+                    seen.append('ra2.ini %s=%s' % (k, got))
     # nolog: lines the run must not print (a control case: [hit] in a plain move)
     for text in expect.get('nolog', []):
         got = sum(text in l for l in lines)

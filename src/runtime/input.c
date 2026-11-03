@@ -150,6 +150,17 @@ void input_key_set(int id, int vk) {
     InitOnceExecuteOnce(&g_keys_once, keys_init, NULL, NULL);
     if (id >= 0 && id < KEY_COUNT) InterlockedExchange(&k_keys[id].vk, vk);
 }
+int input_key_default(int id) { return id >= 0 && id < KEY_COUNT ? k_keys[id].def : 0; }
+
+/* Written by name, as a player would type it, so the file stays readable and
+ * input_keys_load reads it back. */
+void input_key_save(int id, const char* ini) {
+    char v[16];
+    if (id < 0 || id >= KEY_COUNT) return;
+    input_key_to_name(input_key(id), v, sizeof v);
+    WritePrivateProfileStringA("keys", k_keys[id].name, v, ini);
+    fprintf(stderr, "[keys] %s=%s saved to %s\n", k_keys[id].name, v, ini);
+}
 
 int input_arg(int argc, char** argv, int i) {
     if (i + 1 >= argc || g_nev >= MAX_EV) return 0;
