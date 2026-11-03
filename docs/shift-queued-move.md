@@ -1,7 +1,8 @@
 # Shift-queued moves
 
 **Feature ID:** `RA2-QOL-002`
-**Status:** Proposed; implementation reverted pending a safer input path.
+**Status:** Done, without the native planner: see [modern-controls.md](modern-controls.md#shift-queued-moves).
+The notes below are from the first attempt, which used the planner.
 
 ## Goal
 
