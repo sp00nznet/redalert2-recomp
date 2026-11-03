@@ -23,6 +23,7 @@
 #include "native32.h"
 #include "recomp_trace.h"
 #include "input.h"
+#include "battleinfo.h"
 #include "oracle.h"
 #include "present.h"
 #include "hdvox.h"
@@ -1311,6 +1312,7 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; i++) {
         int n = recomp_trace_arg(argc, argv, i);
         if (!n) n = input_arg(argc, argv, i);
+        if (!n) n = battleinfo_arg(argc, argv, i);
         if (n) { i += n - 1; continue; }
         if (!strcmp(argv[i], "--run")) run = 1;
         else if (!strcmp(argv[i], "--headless")) g_headless = 1;
@@ -1343,7 +1345,8 @@ int main(int argc, char** argv) {
             printf("usage: ra2 [--run] [--headless | --classic | [--fullscreen] [--scale sharp|smooth|crt|nearest|integer]] [--record out.mp4] [--frames N] [--exe game\\" RA2_EXE_NAME "] [--game game] [--mod NAME|none]\n"
                    "           [--press DLG:CTRL@s] [--select DLG:CTRL=N@s] [--waitlog TEXT@s] [--move|--click x,y@s] [--key [c][s][a]+vk@s] [--wait VA@s]\n"
                    "           [--watchdog S] [--probe VA] [--debuglog] [--original] [--native-trace] [--callbacks]\n"
-                   "           [--hd-voxels] [--hd-scale 2|3] [--hd-voxels-dump DIR] [--mute] [--args FILE]\n");
+                   "           [--hd-voxels] [--hd-scale 2|3] [--hd-voxels-dump DIR] [--mute] [--args FILE]\n"
+                   "           [--healthbars selected|damaged|always] [--buildinfo] [--overlay]\n");
             recomp_trace_help();
             return argv[i][1] == 'h' || argv[i][2] == 'h' ? 0 : 1;
         }
@@ -1399,6 +1402,7 @@ int main(int argc, char** argv) {
         if (getenv("RA2_PROFILE")) CloseHandle(CreateThread(NULL, 0, profiler, NULL, 0, NULL));
         if (g_record) CloseHandle(CreateThread(NULL, 0, recorder, NULL, 0, NULL));
         input_start();
+        if (g_headless) battleinfo_start_headless();
         if (!g_classic && !g_headless) present_start(g_scale_mode, g_fullscreen);
         if (g_hd_frames_dir) CloseHandle(CreateThread(NULL, 0, hd_frame_dumper, NULL, 0, NULL));
         return oracle_run(exe_full, RA2_IMAGE_BASE, shims, nshims, hooks, 1);
@@ -1447,6 +1451,7 @@ int main(int argc, char** argv) {
      * screen and a real mouse. */
     if (input_scripted() && g_classic) { fprintf(stderr, "a scripted run cannot use --classic\n"); return 1; }
     input_start();
+    if (g_headless) battleinfo_start_headless();
     if (!g_classic && !g_headless) present_start(g_scale_mode, g_fullscreen);
     if (g_hd_frames_dir) CloseHandle(CreateThread(NULL, 0, hd_frame_dumper, NULL, 0, NULL));
     if (g_headless && ra2_vox_hd_on) CloseHandle(CreateThread(NULL, 0, hd_probe, NULL, 0, NULL));

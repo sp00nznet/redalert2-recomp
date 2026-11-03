@@ -34,6 +34,9 @@ reimplements the rules: this runs Westwood's own code, recompiled.
   ([voxels.md](docs/voxels.md)).
 - **Modern controls** (F10): left-click to select, right-click to order, and
   Shift-click a build icon to queue five ([modern-controls.md](docs/modern-controls.md)).
+- **Battle info** (F10): health bars on every object or the damaged ones, the
+  build percentage and build time on the sidebar, and a clock / FPS / APM line
+  ([battle-info.md](docs/battle-info.md)).
 - **Mods**: a folder in `mods/`, laid over the game's without changing it,
   switched in game ([mods/README.md](mods/README.md)).
 - **LAN multiplayer**, RA2 against RA2, as shipped (IPXEmu).
