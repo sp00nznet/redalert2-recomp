@@ -56,6 +56,8 @@ int         input_key_is(int id, int vk);
 const char* input_key_ini_name(int id);          /* "attackmove" */
 const char* input_key_label(int id);             /* "Attack-move (Modern)" */
 void        input_key_set(int id, int vk);
+int         input_key_default(int id);           /* the table's own, before ra2.ini */
+void        input_key_save(int id, const char* ini);   /* [keys] name=KEY in ra2.ini (the F10 page) */
 int         input_key_from_name(const char* v);  /* "A", "F10", "0x41": the VK, 0 for none, -1 unknown */
 void        input_key_to_name(int vk, char* out, int n);
 void        input_keys_load(const char* ini);    /* [keys] from ra2.ini; --bind still wins */
