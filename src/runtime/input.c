@@ -61,6 +61,11 @@ static struct { const char* name; const char* label; int def; volatile LONG vk; 
     [KEY_SCALING]    = { "scaling",    "Next scaling mode",    VK_F12 },
     [KEY_MOUSE4]     = { "mouse4",     "Mouse button 4 sends", 0 },
     [KEY_MOUSE5]     = { "mouse5",     "Mouse button 5 sends", 0 },
+    [KEY_IDLEHARV]   = { "idleharv",   "Next idle harvester (Modern)", VK_OEM_PERIOD },
+    [KEY_IDLEUNIT]   = { "idleunit",   "Next idle unit (Modern)",      VK_OEM_COMMA },
+    [KEY_FASTER]     = { "faster",     "Game speed up (Modern)",       VK_OEM_PLUS },
+    [KEY_SLOWER]     = { "slower",     "Game speed down (Modern)",     VK_OEM_MINUS },
+    [KEY_PAUSE]      = { "pause",      "Pause (Modern)",               VK_PAUSE },
 };
 static INIT_ONCE g_keys_once = INIT_ONCE_STATIC_INIT;
 
@@ -155,7 +160,7 @@ int input_arg(int argc, char** argv, int i) {
     if (i + 1 >= argc || g_nev >= MAX_EV) return 0;
     ev_t e = { 0 };
     const char* a = argv[i + 1];
-    if (!strcmp(argv[i], "--move") || !strcmp(argv[i], "--click")) {
+    if (!strcmp(argv[i], "--move") || !strcmp(argv[i], "--click") || !strcmp(argv[i], "--rclick")) {
         const char* plus = strchr(a, '+');
         if (plus) {
             for (const char* m = a; m < plus; m++)
@@ -163,7 +168,7 @@ int input_arg(int argc, char** argv, int i) {
             a = plus + 1;
         }
         if (sscanf(a, "%d,%d@%lf", &e.x, &e.y, &e.t) != 3) return 0;
-        e.kind = argv[i][2];                    /* 'm' or 'c' */
+        e.kind = argv[i][2] == 'r' ? 'R' : argv[i][2];   /* 'm', 'c' or 'R' */
     } else if (!strcmp(argv[i], "--drag") || !strcmp(argv[i], "--rdrag")) {
         int x2, y2;
         if (sscanf(a, "%d,%d,%d,%d@%lf", &e.x, &e.y, &x2, &y2, &e.t) != 5) return 0;
@@ -432,6 +437,18 @@ static void click(HWND h, LPARAM lp) {
     lb_seen();
 }
 
+/* The same with the right button. Modern controls hand a right click to the
+ * game as a left one (present.c), so the left button reads held too. */
+static void rclick(HWND h, LPARAM lp) {
+    InterlockedOr(&g_mods, 8 | 16);
+    input_post_mouse(h, WM_RBUTTONDOWN, MK_RBUTTON, lp);
+    Sleep(250);
+    lb_seen();
+    input_post_mouse(h, WM_RBUTTONUP, 0, lp);
+    InterlockedAnd(&g_mods, ~(8 | 16));
+    lb_seen();
+}
+
 /* Press a dialog control: point the cursor at it and click it, the way a
  * player does. If the dialog is still open and nothing new opened 3 s later,
  * send the BN_CLICKED a button sends its parent. Returns the method used, or
@@ -636,18 +653,19 @@ static DWORD WINAPI script(LPVOID unused) {
             continue;
         }
         LPARAM lp = MAKELPARAM(e->x, e->y);
-        fprintf(stderr, "[input] %.1fs %s %s%d,%d\n", e->t, e->kind == 'c' ? "click" : "move",
+        fprintf(stderr, "[input] %.1fs %s %s%d,%d\n", e->t, e->kind == 'c' ? "click" : e->kind == 'R' ? "right click" : "move",
                 e->mods & 1 ? "Ctrl-" : e->mods & 2 ? "Shift-" : e->mods & 4 ? "Alt-" : "", e->x, e->y);
         InterlockedExchange(&g_cx, e->x);
         InterlockedExchange(&g_cy, e->y);
         input_post_mouse(h, WM_MOUSEMOVE, 0, lp);
-        if (e->kind == 'c') {
+        if (e->kind == 'c' || e->kind == 'R') {
             static const int mvk[] = { VK_CONTROL, VK_SHIFT, VK_MENU };
             for (int m = 0; m < 3; m++)
                 if (e->mods & 1 << m) PostMessageA(h, WM_KEYDOWN, mvk[m], 1);
             InterlockedOr(&g_mods, e->mods);
             Sleep(100);
-            click(h, lp);
+            if (e->kind == 'R') rclick(h, lp);
+            else click(h, lp);
             InterlockedAnd(&g_mods, ~e->mods);
             for (int m = 0; m < 3; m++)
                 if (e->mods & 1 << m) PostMessageA(h, WM_KEYUP, mvk[m], 0xC0000001);

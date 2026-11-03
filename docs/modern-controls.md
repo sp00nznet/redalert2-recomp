@@ -2,12 +2,15 @@
 
 The F10 menu's **Controls** entry offers **Classic** and **Modern** in both
 Red Alert 2 and Yuri's Revenge. Classic, the default, keeps the original games'
-controls. Modern brings two changes:
+controls. Modern brings these changes:
 
 - **Mouse**: left-click selects, right-click orders, with modern selection
   shortcuts.
 - **Queue Five** (`RA2-QOL-001`): Shift-click a build icon in the sidebar to
   queue five of that item.
+- **Orders**: Shift+right-click queues move points (`RA2-QOL-002`); keys
+  select the next idle harvester or unit, and change the game speed or pause
+  in single player.
 
 The presenter saves the choice in `ra2.ini` as `controls=classic` or
 `controls=modern`. Neither mode changes `rules.ini` or `rulesmd.ini`. Each
@@ -256,6 +259,112 @@ case must log the order and such a hit; the plain move must log neither.
 
 Red Alert 2's skirmish map has eight starts and puts the computer player at a
 random one, so its `skirmish-attackmove` checks the order only.
+
+## Shift-queued moves
+
+**Feature ID:** `RA2-QOL-002`
+
+Hold **Shift** and right-click the ground to give the selected units a route.
+The first point is an ordinary move and the units set off at once; every
+further Shift+right-click adds a point, and each unit takes the next point when
+it stops at the one before. A right-click without Shift is a new order and
+drops the selected units' routes. Units that are already moving (from an order
+without Shift) keep going and take the new point next. Shift alone does
+nothing: no waypoint cursor, no sound, no route lines.
+
+The game's own waypoint mode (the **Z** planner) was the first idea and was
+dropped: entering it clears the selection, and its route only starts when the
+mode closes (the notes from the first attempt are in
+[shift-queued-move.md](shift-queued-move.md)). The route lives in the host
+instead (`src/runtime/orders.c`), and every leg is the order a click on the
+ground gives:
+
+- The battlefield mouse hook hands the click's cell to `orders.c`, and the
+  Modern right-click resolver (`ra2_modern_left_click_action`) asks
+  `ra2_orders_right_click` about a routed right-click. With Shift and a `Move`
+  on the ground, it starts routes (the click goes through: the first point) or
+  adds a point (the click is dropped).
+- A hook in the main loop, just after the game frame count goes up, runs once
+  a game frame and never while paused. It drops routes of units that are no
+  longer in the game's techno list, so a dead unit is never read, and gives a
+  unit whose mission is no longer `Move` (2) or `QMove` (3) its next point. A
+  leg the unit was never seen moving on counts as done after 45 frames.
+- The next leg goes through the game's order routine for a ground click
+  (`DisplayClass`, `0x004AE750` / `0x0049E870`: `MouseOverCell`, then
+  `ClickedAction`, per selected object) with the selection briefly set to that
+  one unit, then put back. So the order is an ordinary move event, with the
+  game's pathing and voice.
+
+| Role | Yuri's Revenge | Red Alert 2 |
+| --- | --- | --- |
+| Frame hook (after the frame count goes up) | `0x0055DE9A` | `0x0054069D` |
+| Ground-click order routine (`ret 0xC`: object, cell, action) | `0x004AE750` | `0x0049E870` |
+| Selection list (items, capacity, count) | `0x00A8ECBC`, `0x00A8ECC0`, `0x00A8ECC8` | `0x00A40C64`, `0x00A40C68`, `0x00A40C70` |
+| Techno list (items, count) | `0x00A8EC7C`, `0x00A8EC88` | `0x00A40C24`, `0x00A40C30` |
+| `MissionClass::CurrentMission` (the queued one 8 bytes on, read while it is -1) | `+0xAC` | `+0x98` |
+
+Limits: a route holds 16 points for up to 64 units; a unit that stops short
+(blocked, or attacked on the way) takes the next point anyway; there are no
+route lines.
+
+**Test:** `skirmish-shiftqueue` band-selects the starting units and gives them
+three points with `--rclick s+X,Y` (a scripted Shift+right-click). The log
+shows the route starting, points 2 and 3 added, each unit sent on to point 2
+and then 3, and a route done at point 3.
+
+## Rally point
+
+With a factory (barracks, war factory) selected, a right-click on the ground
+sets its rally point. This needs nothing of its own: the game resolves that
+click to the factory's own order, and the Modern right-click passes every
+action through except `None`, `Select` and `ToggleSelect`.
+
+## Idle keys
+
+| Key (`[keys]`) | Default | Does |
+| --- | --- | --- |
+| `idleharv=` | `Period` | Select the next idle harvester and centre the view on it. |
+| `idleunit=` | `Comma` | Select the next idle vehicle or infantry unit that is not a harvester, and centre on it. |
+
+Pressing the key again goes on to the next one, round the list. Idle means the
+player's own unit standing in mission `Sleep` (0) or `Guard` (5), where a unit
+with nothing to do, or one that was stopped, waits. The key is taken on the
+window thread (`ra2_modern_key`, Modern controls in a battle only); the frame
+hook above picks the unit (`ra2_orders_idle_pick`), clears the selection with
+the shared routine, calls the unit's `Select()` (a unit it refuses, such as
+one in a transport, is passed over) and runs the `CenterView` command
+(`0x00536E00` / `0x0051C0A0`). A harvester is a unit whose type has
+`Harvester=yes` (`UnitTypeClass` `+0xE0E` / `+0xBA6`, through `UnitClass::Type`
+`+0x6C4` / `+0x5AC`); the owner is `TechnoClass::Owner` (`+0x21C` / `+0x1B4`).
+
+**Test:** `skirmish-idlekeys` presses the idle-unit key twice in a fresh
+skirmish, which selects two of the starting units, and the idle-harvester key
+once, which finds none.
+
+## Game speed and pause
+
+| Key (`[keys]`) | Default | Does |
+| --- | --- | --- |
+| `faster=` | `Plus` (`=`) | One step faster. |
+| `slower=` | `Minus` | One step slower. |
+| `pause=` | `Pause` | Pause; again to resume. |
+
+Single player only (a campaign mission or a skirmish): online the speed is the
+session's and a pause would desync, so there the keys only log that they do
+nothing. The speed is the game's own setting, `OptionsClass::GameSpeed` (0
+fastest to 6 slowest, `0x00A8EB60` / `0x00A40B18`): the main loop copies it
+into its frame timer every pass, which is what the in-game options slider's
+`GAMESPEED` event changes too. Pause skips the game's logic frame the way the
+main loop's own end-of-game checks do: a hook on the last of them
+(`0x0055DE6A` / `0x0054066D`, the byte read before `test al, al; jne`) sets it
+while paused. The picture, scrolling and menus go on, nothing in the battle
+moves, and orders given meanwhile go out when it resumes. A new game starts
+unpaused. The session type is read at `0x00A8B238` / `0x00A3D298` (0 a
+campaign, 5 a skirmish).
+
+**Test:** `skirmish-idlekeys` goes on to press Minus, Plus and Pause twice;
+the log shows both speed changes, and the resume is logged only if no game
+frame ran while paused.
 
 ## Queue Five
 

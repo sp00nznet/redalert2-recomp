@@ -103,6 +103,11 @@ A `--scale` or `--fullscreen` on the command line wins over the file.
   scaling=F12
   mouse4=none       ; the key mouse button 4 (back) sends
   mouse5=none       ; ... button 5 (forward)
+  idleharv=Period   ; Modern controls: next idle harvester
+  idleunit=Comma    ; ... next idle unit
+  faster=Plus       ; ... game speed up (single player)
+  slower=Minus      ; ... down
+  pause=Pause       ; ... pause and resume
   ```
 
   A value is a letter or digit, a key name (`F1`-`F24`, `Esc`, `Space`, `Tab`,

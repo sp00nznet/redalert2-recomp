@@ -174,6 +174,13 @@ class Script:
         self.t += 1
         return self
 
+    def rclick(self, x, y, after=0, mods=''):
+        """A right click at game pixel x, y, mods as click's."""
+        self.t += after
+        self.args += ['--rclick', '%s%d,%d@%g' % (mods + '+' if mods else '', x, y, self.t)]
+        self.t += 1
+        return self
+
     def drag(self, x1, y1, x2, y2, after=0):
         """A band selection from x1, y1 to x2, y2 (game pixels)."""
         self.t += after
@@ -419,6 +426,41 @@ else:
          log={'[modern] attack-move order': 1, 'attacker mission 2 (': 1}, ini=VGA)
     case('skirmish-move', attackmove(False), 720, ingame=True,
          nolog=['[modern] attack-move order', 'attacker mission 2 ('], ini=VGA)
+
+
+# Shift-queued moves in Modern controls (docs/modern-controls.md): the
+# starting units, band-selected as for attack-move, get three points by
+# Shift+right-click a second apart, in three corners of the battlefield, so
+# the first leg is still under way when the others are added. The first is
+# the game's own move; the second and third wait in orders.c and go out, in
+# order, as each unit stops.
+def shiftqueue():
+    s = (SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
+         .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10)
+         .click(236, 213, after=2).key('0x44', after=1)
+         .drag(8, 8, 464, 440, after=15))
+    for x, y in [(30, 450), (440, 450), (440, 30)]:
+        s = s.rclick(x, y, mods='s')
+    s.args += ['--controls', 'modern']
+    return s
+
+
+case('skirmish-shiftqueue', shiftqueue(), 300, ingame=True, ini=VGA,
+     log={'[orders] route start at': 1, '[orders] route point 2 at': 1, '[orders] route point 3 at': 1,
+          ': point 2 at': 1, ': point 3 at': 1, 'route done at point 3': 1})
+# The idle keys (Modern controls): a fresh skirmish's starting units stand
+# idle, so the idle-unit key (Comma) selects one and a second press the next;
+# there is no harvester yet, and the idle-harvester key (Period) says so.
+# Then the speed keys (Minus, Plus) and Pause twice: a resume is logged only
+# when no game frame ran while paused (orders.c), so it proves the pause.
+case('skirmish-idlekeys', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
+     .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10)
+     .key('0xBC', after=5).key('0xBC', after=2).key('0xBE', after=2)
+     .key('0xBD', after=1).key('0xBB', after=1).key('0x13', after=1).key('0x13', after=4)
+     ._args('--controls', 'modern'),
+     160, ingame=True, ini=VGA,
+     log={'[orders] idle unit ': 2, ' selected': 2, '[orders] no idle harvester': 1,
+          '[orders] game speed ': 2, '[orders] paused at frame': 1, '[orders] resumed at frame': 1})
 
 
 # The presenter's input (docs/presenter.md), headless: --selftest-input feeds

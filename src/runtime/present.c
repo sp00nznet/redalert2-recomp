@@ -165,6 +165,10 @@ static int g_selftest;                   /* --selftest-input: no window, the rea
 enum { ATTACK_MOVE_ARM = 1, ATTACK_MOVE_CANCEL = 2 };
 
 int ra2_modern_controls(void);
+int ra2_orders_right_click(uint32_t action);    /* orders.c */
+void ra2_orders_idle_key(int harvester);
+void ra2_orders_speed_key(int step);
+void ra2_orders_pause_key(void);
 
 static int attack_move_armed(void) {
     return *(volatile uint8_t*)(uintptr_t)RA2_ATTACK_MOVE_FLAG_VA != 0;
@@ -179,6 +183,18 @@ int ra2_modern_key(int vk, int repeat) {
             InterlockedExchange(&g_attack_move_request, ATTACK_MOVE_ARM);
             fprintf(stderr, "[modern] attack-move key 0x%X\n", vk);
         }
+        return 1;
+    }
+    if (input_key_is(KEY_IDLEHARV, vk) || input_key_is(KEY_IDLEUNIT, vk)) {
+        ra2_orders_idle_key(input_key_is(KEY_IDLEHARV, vk));
+        return 1;
+    }
+    if (input_key_is(KEY_FASTER, vk) || input_key_is(KEY_SLOWER, vk)) {
+        ra2_orders_speed_key(input_key_is(KEY_FASTER, vk) ? 1 : -1);
+        return 1;
+    }
+    if (input_key_is(KEY_PAUSE, vk)) {
+        if (!repeat) ra2_orders_pause_key();
         return 1;
     }
     if (vk == VK_ESCAPE && attack_move_armed()) InterlockedExchange(&g_attack_move_request, ATTACK_MOVE_CANCEL);
@@ -968,7 +984,10 @@ static LRESULT CALLBACK wndproc(HWND hw, UINT m, WPARAM w, LPARAM l) {
         return 0;
     case WM_KEYUP: case WM_SYSKEYUP:
         if (presenter_key_bound((int)w)) return 0;
-        if (m == WM_KEYUP && input_key_is(KEY_ATTACKMOVE, (int)w) && ra2_modern_controls() && !host_menu_cursor())
+        if (m == WM_KEYUP && (input_key_is(KEY_ATTACKMOVE, (int)w) || input_key_is(KEY_IDLEHARV, (int)w) ||
+                              input_key_is(KEY_IDLEUNIT, (int)w) || input_key_is(KEY_FASTER, (int)w) ||
+                              input_key_is(KEY_SLOWER, (int)w) || input_key_is(KEY_PAUSE, (int)w)) &&
+            ra2_modern_controls() && !host_menu_cursor())
             return 0;                       /* its key-down was taken (ra2_modern_key) */
         forward_key(m, w, l);
         return 0;
@@ -1377,6 +1396,9 @@ uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target,
 
     int selecting = action == ACTION_SELECT || action == ACTION_TOGGLE_SELECT;
     if (g_modern_right_click) {
+        /* With Shift, a move on the ground is a point on the units' route
+         * (orders.c); a later point waits there, so the click does nothing. */
+        if (ra2_orders_right_click(target ? ACTION_NONE : action)) return MODERN_CLICK_IGNORE;
         /* A routed right-click issues contextual orders only. Select and
          * ToggleSelect would change the selection, and None can too (see
          * MODERN_CLICK_IGNORE). Every other action passes through. */
