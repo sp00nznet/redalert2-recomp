@@ -108,6 +108,12 @@ int ra2_modern_shift_box_begin(void) { return 0; }
 void ra2_modern_shift_box_decide(void) {}
 void ra2_modern_shift_box_end(void) {}
 int ra2_modern_box_object(int selected) { (void)selected; return 1; }
+/* Battle info (src/runtime/battleinfo.c) is Windows only for now: the lift's
+ * patches find every setting off, the game as it shipped. */
+int ra2_healthbars, ra2_buildinfo;
+int ra2_healthbar_force(int health, int strength) { (void)health, (void)strength; return 0; }
+uint32_t ra2_build_pct_text(int stage) { (void)stage; return 0; }
+void ra2_tooltip_time(uint32_t buffer, int frames) { (void)buffer, (void)frames; }
 
 /* ---- game-specific answers ------------------------------------------------ */
 

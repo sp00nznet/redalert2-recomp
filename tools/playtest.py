@@ -354,6 +354,24 @@ case('skirmish-build', place(place(
     # (a CnCNet install had 3440x1440, and every click missed the sidebar).
     ini={'Video': {'ScreenWidth': 640, 'ScreenHeight': 480}})
 
+# Battle info (docs/battle-info.md) on the same build order: every health bar
+# shown (healthbars=always), the build percentage on the cameo being built and
+# the build time in a hovered cameo's tooltip. Each feature's first use is a
+# log line, and every 10 s the counts.
+battle_info = place(
+    SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
+    .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10)
+    .click(236, 213, after=2).key('0x44', after=1).waitlog('Adding event DEPLOY')
+    .move(523, 251, after=8).click(523, 251, after=1)                   # power plant
+    .move(523, 300, after=3).move(523, 251, after=25).click(523, 251, after=1))   # hover, then pick it up
+battle_info.args += ['--healthbars', 'always', '--buildinfo']
+case('skirmish-battleinfo', battle_info, 150, ingame=True, alive=True,
+     log={'Adding event PRODUCE': 1, 'Adding event PLACE': 1,
+          '[battleinfo] first health bar shown by healthbars=always': 1,
+          '[battleinfo] first build percentage': 1, '[battleinfo] tooltip build time': 1,
+          '[battleinfo] health bars always': 3},
+     ini={'Video': {'ScreenWidth': 640, 'ScreenHeight': 480}})
+
 case('skirmish-loop', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
      .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10)
      .press(0x108, 'Continue', MAIN), 720, ingame=True)

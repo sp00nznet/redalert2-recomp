@@ -14,7 +14,7 @@
  *   F11, Alt+Enter   borderless fullscreen on the window's monitor
  *   F12              scaling: sharp-bilinear (default), smooth, CRT, nearest, integer
  *   F10, right-click on the bars   the settings menu (scaling, bars,
- *                    fullscreen, the game's resolution); kept in ra2.ini
+ *                    fullscreen, the game's resolution, battle info); kept in ra2.ini
  */
 #define COBJMACROS
 #define WIN32_LEAN_AND_MEAN
@@ -28,6 +28,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "battleinfo.h"
 #include "input.h"
 #include "present.h"
 #include "hdvox.h"
@@ -578,6 +579,8 @@ static void settings_save(HWND hw) {
         WritePrivateProfileStringA("present", hdvox_key(), hv, g_ini);   /* 0 off, 2 or 3 the scale */
         WritePrivateProfileStringA("present", "hdvox_aa", ra2_vox_aa ? "1" : "0", g_ini);   /* 1x-smooth overlay */
     }
+    WritePrivateProfileStringA("present", "healthbars", battleinfo_bars_name(ra2_healthbars), g_ini);
+    WritePrivateProfileStringA("present", "buildinfo", ra2_buildinfo ? "1" : "0", g_ini);
     if (hw && !g_fullscreen && !IsIconic(hw)) {
         RECT r;
         GetWindowRect(hw, &r);
@@ -604,7 +607,7 @@ static void set_game_resolution(int w, int h) {
 }
 
 enum { ID_SCALE = 100, ID_BARS = 200, ID_FULL = 300, ID_RES = 400, ID_HDVOX = 500,
-       ID_MOD = 600, ID_CONTROLS = 700 };
+       ID_MOD = 600, ID_CONTROLS = 700, ID_BARS_MODE = 800, ID_BUILDINFO = 810 };
 #define MAX_MENU_MODS 64
 
 static void settings_menu(HWND hw) {             /* at the mouse */
@@ -613,6 +616,7 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     HMENU mods = CreatePopupMenu();
     HMENU controls = CreatePopupMenu();
     HMENU hd = CreatePopupMenu();
+    HMENU info = CreatePopupMenu(), bars_mode = CreatePopupMenu();
     static char mod_names[MAX_MENU_MODS][128];
     int nmods = mods_list(mod_names, MAX_MENU_MODS);
     static const char* const scale_label[NMODES] = { "Sharp (default)", "Smooth", "CRT", "Nearest", "Integer" };
@@ -642,6 +646,14 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     AppendMenuA(controls, MF_STRING | (InterlockedCompareExchange(&g_modern_controls, 0, 0) ? MF_CHECKED : 0),
                 ID_CONTROLS + 1, "Modern");
     AppendMenuA(m, MF_POPUP, (UINT_PTR)controls, "Controls");
+    {   /* battleinfo.c */
+        static const char* const bars_label[3] = { "When selected (original)", "When damaged", "Always" };
+        for (int i = 0; i < 3; i++)
+            AppendMenuA(bars_mode, MF_STRING | (ra2_healthbars == i ? MF_CHECKED : 0), ID_BARS_MODE + i, bars_label[i]);
+        AppendMenuA(info, MF_POPUP, (UINT_PTR)bars_mode, "Health bars");
+        AppendMenuA(info, MF_STRING | (ra2_buildinfo ? MF_CHECKED : 0), ID_BUILDINFO, "Build % and build time on the sidebar");
+        AppendMenuA(m, MF_POPUP, (UINT_PTR)info, "Battle info");
+    }
     AppendMenuA(m, MF_SEPARATOR, 0, NULL);
     AppendMenuA(m, MF_POPUP, (UINT_PTR)res, "Game resolution (next battle)");
     /* the mods in mods\<game>: choosing one restarts the game with it (mods.c) */
@@ -663,6 +675,8 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     }
     else if (cmd == ID_CONTROLS || cmd == ID_CONTROLS + 1)
         InterlockedExchange(&g_modern_controls, cmd - ID_CONTROLS);
+    else if (cmd >= ID_BARS_MODE && cmd < ID_BARS_MODE + 3) ra2_healthbars = cmd - ID_BARS_MODE;
+    else if (cmd == ID_BUILDINFO) ra2_buildinfo = !ra2_buildinfo;
     else if (cmd >= ID_RES && cmd < ID_RES + NRES) set_game_resolution(k_res[cmd - ID_RES][0], k_res[cmd - ID_RES][1]);
     else if (cmd >= ID_MOD && cmd <= ID_MOD + nmods) {
         const char* name = cmd == ID_MOD ? "" : mod_names[cmd - ID_MOD - 1];
@@ -963,6 +977,11 @@ void present_start(int mode, int fullscreen) {
     g_bars = _stricmp(v, "black") != 0;
     GetPrivateProfileStringA("present", "controls", "classic", v, sizeof v, g_ini);
     InterlockedExchange(&g_modern_controls, !_stricmp(v, "modern"));
+    if (!battleinfo_cmdline()) {            /* --healthbars or --buildinfo win */
+        GetPrivateProfileStringA("present", "healthbars", "selected", v, sizeof v, g_ini);
+        ra2_healthbars = battleinfo_bars_from_name(v) >= 0 ? battleinfo_bars_from_name(v) : 0;
+        ra2_buildinfo = GetPrivateProfileIntA("present", "buildinfo", 0, g_ini) != 0;
+    }
     if (fullscreen < 0) fullscreen = GetPrivateProfileIntA("present", "fullscreen", 0, g_ini);
     if (!ra2_vox_hd_on) {                   /* --hd-voxels forces it; the ini holds 0 off, 2/3 scale */
         int hv = GetPrivateProfileIntA("present", hdvox_key(), host_under_wine() ? 0 : 2, g_ini);
