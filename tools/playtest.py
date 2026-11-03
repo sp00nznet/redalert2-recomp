@@ -195,6 +195,17 @@ class Script:
         self.t += 1
         return self
 
+    def _args(self, *a):
+        self.args += list(a)
+        return self
+
+    def selftest_input(self, after=0):
+        """The presenter's input path, fed without a window (--selftest-input)."""
+        self.t += after
+        self.args += ['--selftest-input', '%g' % self.t]
+        self.t += 15
+        return self
+
 
 def S():
     return Script()
@@ -209,6 +220,11 @@ def S():
 #   expect 'ini':     RA2MD.INI values for the case's game folder, {section: {key: value}}
 #   expect 'size':    the picture in game is this (w, h)
 #   expect 'hd':      HD voxels on, and no 2x picture showed the units at 1x
+#   expect 'env':     environment variables for the host, {name: value}
+#   expect 'ra2ini':  the presenter's ra2.ini after the run, {section: {key: value}}; the case
+#                     gets its own, empty at start (RA2_PRESENT_INI), not the player's
+#   expect 'log':     {text: n}, lines the game or host prints at least n times
+#   expect 'nolog':   [text], lines it must never print
 CASES = {}
 
 
@@ -366,6 +382,72 @@ for side, emblem in [('allied', 1770), ('soviet', 1772)]:
          300, ingame=True, alive=True)
 
 
+# Attack-move in Modern controls (docs/modern-controls.md). Deploy the MCV (an
+# MCV in the selection cannot attack-move, and the game refuses the lot) and
+# band-select the starting units. The map's two starts are in its top-right
+# and bottom-left corners, and the game picks which is ours, so the units go
+# twice: by the screen edge to the top-right corner, A and a click on open
+# ground there, then the same to the bottom-left. One of the two walks crosses
+# the computer player's base. The same script without A is the control.
+# [hit] is the host's log of the damage the player's side deals, with the
+# attacker's mission: an attack-move stays mission 2 (Move) between fights, so
+# a hit with mission 2 is one on the way; a plain move never fires on the way.
+# The top-right click is open ground whichever base is there: (380, 330) hit
+# our own infantry when the top-right base was ours, and selected one GI.
+AM_LEGS = [((639, 0), (200, 110)), ((0, 479), (120, 380))]   # (screen edge, click)
+
+
+def attackmove(key):
+    s = (SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
+         .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10)
+         .click(236, 213, after=2).key('0x44', after=1)
+         .drag(8, 8, 464, 440, after=15))
+    for k, (edge, dest) in enumerate(AM_LEGS):
+        s = s.move(*edge, after=150 if k else 1).move(*dest, after=40)
+        if key:
+            s = s.key('0x41', after=1)
+        s = s.click(*dest, after=1)
+    s.args += ['--controls', 'modern']
+    return s
+
+
+VGA = {'Video': {'ScreenWidth': 640, 'ScreenHeight': 480}}
+if TARGET == 'game':
+    # Red Alert 2's skirmish map has eight starts and puts the computer player
+    # at a random one: no enemy on a fixed path, so only the order is checked.
+    case('skirmish-attackmove', attackmove(True), 720, ingame=True,
+         log={'[modern] attack-move order': 1}, ini=VGA)
+else:
+    case('skirmish-attackmove', attackmove(True), 720, ingame=True,
+         log={'[modern] attack-move order': 1, 'attacker mission 2 (': 1}, ini=VGA)
+    case('skirmish-move', attackmove(False), 720, ingame=True,
+         nolog=['[modern] attack-move order', 'attacker mission 2 ('], ini=VGA)
+
+
+# The presenter's input (docs/presenter.md), headless: --selftest-input feeds
+# its window procedure in a battle. The cursor lock clips and lets go (focus,
+# minimise, the settings menu) and clips again; a middle-drag reaches the game
+# as the right-drag scroll and the battlefield hook pans at once; a middle
+# click sends nothing; mouse 4 sends the attack-move key and mouse 5 H, bound
+# with --bind (ra2.ini is the player's). An unknown [keys] name is logged.
+# Then the F10 keybinding page: it lists the [keys] table, mouse 4 is rebound
+# to G there, the case's own ra2.ini gets [keys] mouse4=G, and mouse 4 sends G.
+case('input-selftest', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
+     .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10).selftest_input(after=2)
+     ._args('--controls', 'modern', '--bind', 'mouse4=A', '--bind', 'mouse5=H', '--bind', 'bogus=Q'),
+     240, ingame=True, ini=VGA,
+     log={'[input] cursor clip 160,0,1440,960': 4, '[input] cursor released (focus lost)': 2,
+          '[input] cursor released (minimised)': 1, '[input] cursor released (settings)': 1,
+          "[input] middle-drag: the game's right-drag from 320,240": 1, '[modern] middle-drag pan': 1,
+          '[input] middle click: nothing sent': 1, '[input] mouse4 -> key 0x41': 1,
+          '[modern] attack-move key 0x41': 1, '[input] mouse5 -> key 0x48': 1,
+          '[input] key down 0x48 posted to the game': 1, '[keys] unknown key bogus': 1,
+          '[keys] page: mouse4 = A (Mouse button 4 sends)': 1, '[keys] page: settings = F10': 1,
+          '[keys] mouse4=G saved to': 1, '[input] mouse4 -> key 0x47': 1,
+          '[input] key down 0x47 posted to the game': 1, '[selftest] done': 1},
+     ra2ini={'keys': {'mouse4': 'G'}})
+
+
 def set_ini(text, section, key, value):
     """RA2MD.INI with [section] key=value set, the section added if missing."""
     lines = text.split(b'\r\n') if b'\r\n' in text else text.split(b'\n')
@@ -399,6 +481,20 @@ for w, h in RES:
     case('res-%dx%d' % (w, h), SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
          .waitlog(INGAME).move(w // 2 - 80, h // 2, after=2).key('0x48', after=10),
          180, ingame=True, size=(w, h), ini=video)
+# UI scale 2x (docs/presenter.md): at 3440x1440 less the 168 lines the 2x
+# sidebar adds, the sidebar laid out in the top half of its strip, and the
+# view 32 lines shorter for the bar under it drawn 2x (1440 - 64). Headless
+# there is no presenter to compose it; the case shows the layout and a
+# battle that runs with it, and --selftest-input composes a made-up frame:
+# the radar (the strip's top 158 lines) drawn 2x at the top right, and a
+# click on its centre reaching the game's radar.
+case('ui-scale-2x', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
+     .waitlog(INGAME).move(1556, 720, after=2).key('0x48', after=10).selftest_input(after=2),
+     180, ingame=True, size=(3272, 1440), ini={'Video': {'ScreenWidth': 3272, 'ScreenHeight': 1440}},
+     env={'RA2_UI_SCALE': '2'}, log={'[present] UI scale 2x: sidebar': 1, '[present] UI scale 2x: view': 1,
+                                     'Set_View_Dimensions(0,0,3104,1376)': 1,
+                                     '[selftest] UI scale 2x: radar 168x158 drawn as 336x316 at 3104,0; '
+                                     'its centre maps to game 3188,79': 1})
 case('res-campaign-1920x1080', SP().press(SINGLE, 'NewCampaign', CAMPAIGN).press(CAMPAIGN, 1770)
      .waitlog(INGAME).move(880, 540, after=2).key('0x48', after=10), 300, ingame=True, alive=True,
      size=(1920, 1080), ini={'Video': {'ScreenWidth': 1920, 'ScreenHeight': 1080}})
@@ -442,6 +538,11 @@ def run(name, args, seconds, expect, every, original=False):
     os.makedirs(d, exist_ok=True)
     game = farm(os.path.join(d, 'game'), expect.get('ini'))
     mp4, log = os.path.join(d, 'run.mp4'), os.path.join(d, 'run.log')
+    env = {**os.environ, **expect.get('env', {})}
+    ini = os.path.join(d, 'ra2.ini')
+    if 'ra2ini' in expect:
+        open(ini, 'w').close()
+        env['RA2_PRESENT_INI'] = host_path(ini)
     cmd = WINE + [HOST, '--headless', '--run', '--mute', '--debuglog', '--watchdog', str(seconds),
                   '--record', host_path(mp4), '--exe', host_path(os.path.join(game, GAME_EXE)),
                   '--game', host_path(game)] + args
@@ -452,7 +553,7 @@ def run(name, args, seconds, expect, every, original=False):
     with open(log, 'w', errors='replace') as f, (IPX if lan else contextlib.nullcontext()):
         try:
             code = subprocess.run(cmd, cwd=ROOT, stdout=f, stderr=subprocess.STDOUT,
-                                  timeout=seconds + 300).returncode
+                                  env=env, timeout=seconds + 300).returncode
         except subprocess.TimeoutExpired:
             code = 'timeout'
     text = open(log, errors='replace').read()
@@ -511,6 +612,27 @@ def run(name, args, seconds, expect, every, original=False):
             bad.append('"%s" %d times, wanted %d' % (text, got, n))
         elif n:
             seen.append('%s x%d' % (text.split()[-1].lower(), got))
+    # ra2ini: what the presenter saved (the F10 keybinding page)
+    if 'ra2ini' in expect:
+        saved, sec = {}, None
+        for l in open(ini, errors='replace').read().splitlines():
+            l = l.strip()
+            if l.startswith('['):
+                sec = l.strip('[]').lower()
+            elif '=' in l and sec:
+                saved.setdefault(sec, {})[l.split('=')[0].strip().lower()] = l.split('=', 1)[1].strip()
+        for sec, kv in expect['ra2ini'].items():
+            for k, v in kv.items():
+                got = saved.get(sec.lower(), {}).get(k.lower())
+                if got != str(v):
+                    bad.append('ra2.ini [%s] %s=%s, wanted %s' % (sec, k, got, v))
+                else:
+                    seen.append('ra2.ini %s=%s' % (k, got))
+    # nolog: lines the run must not print (a control case: [hit] in a plain move)
+    for text in expect.get('nolog', []):
+        got = sum(text in l for l in lines)
+        if got:
+            bad.append('"%s" %d times, wanted none' % (text, got))
     if 'exit' in expect and code != expect['exit']:
         bad.append('expected exit %d' % expect['exit'])
     elif 'exit' not in expect and code not in (0, 4):

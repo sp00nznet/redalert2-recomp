@@ -19,6 +19,9 @@ build\ra2.exe --run --classic                     # the original display
 | F12 | scaling: sharp-bilinear, smooth, CRT, nearest, integer |
 | F10, or right-click beside the picture | the settings menu |
 
+F10, F11 and F12 can be rebound, and mouse buttons 4 and 5 given a key, in
+`[keys]` or on the F10 menu's **Keys** page (see [Input](#input)).
+
 The F10 menu includes **Controls**. **Classic** keeps the original games'
 controls. **Modern** uses left-click to select, left-click on open ground to
 deselect, and right-click for contextual orders, and adds Queue Five
@@ -41,6 +44,7 @@ bars=blur
 fullscreen=0
 hdvoxels=1
 controls=classic
+cursorlock=auto
 window=100,100,1600,900
 ```
 
@@ -65,8 +69,185 @@ A `--scale` or `--fullscreen` on the command line wins over the file.
   (`0x00A8EB60` +0x24/+0x28, the object the settings reader is called on at
   `0x0052C630`), because the game saves its own options on exit and would put
   the old size back. 3840x2160 needs the sidebar fix in [hires.md](hires.md).
+- **UI scale** (*Off*, *2x*, *3x*; `uiscale=1|2|3`) draws the sidebar, radar,
+  build icons and the bar under the battlefield two or three times larger
+  while the battlefield stays 1:1,
+  for large screens where the 168-pixel sidebar is tiny. It applies from the
+  next battle, and only where the sidebar keeps the 600 lines it has at
+  800x600: 2x from a game resolution 1200 lines tall, 3x from 1800. See
+  [UI scale](#ui-scale) below.
 - While the menu is open the picture holds still (the menu runs its own
   message loop on the presenter's thread); the game itself keeps running.
+
+## UI scale
+
+The art stays at its native size at any resolution, so at 3440x1440 the
+sidebar is a 168-pixel strip down the right edge and its build icons are
+small. A larger sidebar needs room the game doesn't lay out: the strip is the
+screen's height, and twice as tall it would not fit. So the game lays the
+sidebar out shorter, and the presenter draws it larger.
+
+- **The layout.** The sidebar sets its rect once per battle at `0x006A5130`
+  (Red Alert 2: `0x0067B910`): below the 158-line radar, 168 wide, down to the
+  bottom of the screen. Its rows of build icons, its buttons and its bottom
+  piece all follow from that height. The lift asks the host for the height
+  (`run_lift.py` `UI_SCALE_SITES`, `ra2_ui_sidebar_h` in `present.c`), and
+  at scale *s* the host answers `screen / s - 158`: the whole sidebar is in
+  the top 1/*s* of its strip. At 3272x1440 and 2x that is 562 lines of the
+  1282 it would have. The rest of the strip is left out of the picture.
+- **The bar.** The bar under the battlefield (the Options and Diplomacy
+  tabs) is the bottom 32 lines left of the sidebar, laid out from the
+  screen's height (`0x0072FE98`, Red Alert 2 `0x006F4ECB`). The tactical view
+  is the screen less the sidebar and that bar (`0x0072AD20`, `0x0072AD90`;
+  Red Alert 2 `0x006F1F30`). The lift asks the host for the view's height
+  (`UI_VIEW_SITES`, `ra2_ui_view_h`), and at scale *s* it is
+  `32 * (s - 1)` lines shorter: 1376 of 1408 at 3272x1440 and 2x. The bar
+  stays where the game draws it, and the room above it is left to the
+  presenter.
+- **The picture.** `ui_compose` copies the battlefield 1:1 and the top 1/*s*
+  of the strip *s* times larger beside it, nearest neighbour: a frame
+  `168 * (s - 1)` pixels wider than the game's. Picking a resolution from the
+  menu with a UI scale on sets the game that much narrower (3272x1440 for
+  3440x1440 at 2x), so the picture is the screen's size and the battlefield
+  stays sharp. Switching the scale keeps the size on screen the same way.
+  The bottom `32 * s` lines left of the strip are the bar's left 1/*s*, *s*
+  times larger; the tabs are at its left end, and what is right of
+  `base / s` (the bar's end piece) is left out.
+- **When.** Only in a battle (the game drawing its own cursor), at the height
+  the sidebar was laid out for, with no menu band cut. A battle's menus and
+  Red Alert 2's main menus at the game's size are shown as the game drew
+  them. The scale a battle was laid out with is kept apart from the setting,
+  which applies from the next battle.
+- **Input.** A point in the scaled strip maps back to `base + (x - base) / s`,
+  `y / s`, and one in the scaled bar to `x / s`, `h - 32 + (y - (h - 32 s)) / s`.
+  The right edge of the screen is still the game's right edge, so
+  edge scrolling works.
+- **Limits.** The units' HD overlay is not drawn while the picture is
+  composed (units at 1x): HD vehicles are only on up to 2048x1080, below 2x's
+  1200 lines except at 1920x1200 and 2048x1152. Text such as messages and
+  tooltips stays at 1x. The view's height takes the scale of the battle laid
+  out at that height, else the setting: Yuri's Revenge sets its view after
+  the sidebar, each battle; Red Alert 2 sets it once, when it starts in the
+  INI's mode, so there a change of UI scale reaches the view after a restart.
+- **Text over the battlefield.** Messages (`MessageListClass`, `0x005D3A60`),
+  tooltips (`CCToolTip`, `0x007775C0`) and the superweapon timers are drawn
+  into the 1:1 battlefield, so they stay small. A larger font is not a way
+  out: both games ship one, `GAME.FNT`, loaded once (`0x00434AD0`) into a
+  single BitFont at `0x0089C4D0` that every text uses (240 reads in Yuri's
+  Revenge), the sidebar's and the menus' too. Drawing its glyphs 2x would
+  grow all of them, and the line heights and boxes that are laid out from
+  the font's metrics with them. Scaling only this text would take drawing it
+  to a surface of its own and composing that larger, as the sidebar is; that
+  is left for later.
+- **The radar** is the top 158 lines of the strip, above the sidebar's
+  rect, so it scales with the sidebar with no site of its own: `ui_compose`
+  draws the strip's top 1/*s* from its first row, the radar's 168x158
+  becomes 336x316 at 2x, and a click on it maps back as for the sidebar.
+- **Headless.** `RA2_UI_SCALE=2` sets the scale without a `ra2.ini`;
+  `tools/playtest.py ui-scale-2x` runs a skirmish with the 2x layout and
+  checks the sidebar's and the view's log lines and the game's own
+  `Set_View_Dimensions(0,0,3104,1376)`. Its `--selftest-input` step composes
+  a made-up frame through `ui_compose` and checks the radar: drawn 336x316 at
+  3104,0, and its centre reaching the game at 3188,79.
+
+## Input
+
+- **Cursor lock.** In a battle the mouse stays on the picture (`ClipCursor`
+  to the picture's rectangle), so edge scrolling works at the edge of an
+  ultrawide or a second monitor, and a click near the edge never lands on the
+  desktop. It lets go while the game shows its menus (the Windows cursor),
+  while the settings menu is open, when the window goes inactive (Alt-Tab, a
+  click on another window) or is minimised, and on exit, and takes the mouse
+  again when the window comes back. `cursorlock=auto` (the default) has it on
+  in Modern controls and off in Classic; `on` and `off` choose. F10, Controls,
+  *Keep the mouse in the picture in battle* switches it. The log says
+  `[input] cursor clip L,T,R,B` and `[input] cursor released (reason)`.
+- **Middle-drag pan** (Modern controls, in a battle). The middle button held
+  and moved is the game's own right-drag scroll: once the mouse has moved past
+  the Windows drag distance the presenter sends a right-down at the press
+  point, the moves with the right button held, and a right-up. The
+  battlefield hook starts the native pan at once for that right-down, so it is
+  never a right-click order, and it comes before the attack-move cancel. A
+  plain middle click sends nothing. While a building is being placed, the
+  right-down still reaches the game's placement mode, which cancels on a right
+  press as it always has.
+- **Rebindable keys.** `[keys]` in `ra2.ini`:
+
+  ```ini
+  [keys]
+  attackmove=A      ; Modern controls (modern-controls.md)
+  settings=F10
+  fullscreen=F11    ; Alt+Enter stays
+  scaling=F12
+  mouse4=none       ; the key mouse button 4 (back) sends
+  mouse5=none       ; ... button 5 (forward)
+  ```
+
+  A value is a letter or digit, a key name (`F1`-`F24`, `Esc`, `Space`, `Tab`,
+  `Enter`, `Home`, `End`, `PgUp`, `PgDn`, the arrows, `Numpad0`-`Numpad9`,
+  `Pause`, `Tilde`, ...), or a virtual-key number (`0x41`); `none` unbinds.
+  The F10 menu's **Keys** page lists every row with its key; picking one
+  opens a small box over the picture that takes the next key pressed
+  (Backspace: none, Esc or a click: cancel). The key works at once and is
+  written to `[keys]` by name. *Reset all to the defaults* puts the table's
+  own back. Modifiers alone are not keys, so the box waits past them; two rows
+  may share a key, as `mouse4=A` and `attackmove=A` do on purpose, and the
+  page does not stop a clash between two presenter keys.
+  A mouse button's key goes through the same path as the keyboard's, so
+  `mouse4=A` arms attack-move and `mouse5=F10` opens the settings. A name the
+  table does not have, and a value it cannot read, are logged
+  (`[keys] unknown key ...`) and ignored. `--bind name=key` sets one for a run
+  and wins over the file.
+
+  The table is `k_keys` in `src/runtime/input.c` with its IDs (`KEY_*`) in
+  `input.h`. A feature that needs a key adds an ID and a row (name, label,
+  default) and asks `input_key_is(KEY_..., vk)` where it handles keys; the
+  loader, `--bind`, the logging, the F10 menu labels and a row on the Keys
+  page come with it (`keys_page` in `present.c` walks the table; it has no
+  list of its own). `input_key_save` writes one row back.
+- **Scroll speed** (`edgescroll=`, `keyscroll=`): not done here. Edge and key
+  scrolling move the view by a step per game frame, from the game's own
+  `ScrollRate` option (an index into its speed table: `OptionsClass` +0x10,
+  `0x00A8EB60` in Yuri's Revenge, read at `0x005FA71D` and saved at
+  `0x005FADA1`), so the speed follows the game speed and the presenter can only
+  change the index, a whole step at a time, which the game then saves to
+  `RA2MD.INI` as the player's own setting. A multiplier that does not depend on
+  the game speed needs a patch where the step is applied (`run_lift.py`); that
+  is left for the orders track.
+- **Raw input** (`WM_INPUT` with a `mousesens=`): dropped after a design look,
+  not built. A sensitivity other than Windows' needs a cursor of the
+  presenter's own, moved by raw deltas, that no longer matches the real one. In
+  a battle the game draws its cursor from what `GetCursorPos` answers, so that
+  would work while the cursor lock holds; but the menus (the game's and the
+  F10 one) use the Windows cursor, the hit test and the bars use the real
+  position, and every switch between them would have to warp the real cursor
+  (`SetCursorPos`) to the presenter's, which is the fight with the game's own
+  cursor the plan said to stop at. Windows' pointer speed already applies to
+  the presenter, and in a battle the game's cursor follows it 1:1.
+
+### Self-test
+
+`--selftest-input S` (a script step, [testing.md](testing.md)) runs in a
+battle, `S` seconds in, with no window: the picture is taken as 2x in a wider
+client area (`160,0,1440,960` for 640x480) and the messages a player sends go
+through the window procedure. The cursor lock logs what it would clip and
+never touches the machine's real mouse; what the presenter forwards reaches the
+game as in play. `tools/playtest.py`'s `input-selftest` checks that the lock
+clips four times and lets go on focus loss, minimise and the settings menu; a
+middle-drag reaches the game as the right-drag (`[modern] middle-drag pan`
+from the battlefield hook, on the game's thread); a middle click sends nothing;
+mouse 4 (`--bind mouse4=A`) arms attack-move and mouse 5 (`--bind mouse5=H`)
+posts H to the game; and an unknown `[keys]` name is logged. Then the Keys
+page: it lists the table (`[keys] page: ...`), mouse 4 is rebound to G there
+(the box answers G in the self-test), `[keys] mouse4=G` is saved, and mouse 4
+sends G. The case runs with an `ra2.ini` of its own, empty at start
+(`RA2_PRESENT_INI`, set by the case's `ra2ini` expectation), and checks the
+file afterwards; without that variable the self-test leaves the page out,
+since the `ra2.ini` beside a shared build is the player's.
+
+With a UI scale on (`RA2_UI_SCALE=2`) the self-test also composes a made-up
+frame and logs the radar's size in the picture and where a click on its
+centre reaches the game (`ui-scale-2x`).
 
 ## How it fits together
 

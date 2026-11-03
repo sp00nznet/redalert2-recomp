@@ -108,6 +108,15 @@ int ra2_modern_shift_box_begin(void) { return 0; }
 void ra2_modern_shift_box_decide(void) {}
 void ra2_modern_shift_box_end(void) {}
 int ra2_modern_box_object(int selected) { (void)selected; return 1; }
+int ra2_modern_attack_move_request(void) { return 0; }
+void ra2_hit_logged(uint32_t victim, uint32_t house, uint32_t player, uint32_t mission) {
+    (void)victim, (void)house, (void)player, (void)mission;
+}
+
+/* UI scale (src/runtime/present.c) is the Windows presenter's too: this host
+ * has no picture to compose it into, so the sidebar and the view keep their full height. */
+int32_t ra2_ui_sidebar_h(int32_t h) { return h; }
+int32_t ra2_ui_view_h(int32_t h) { return h; }
 
 /* ---- game-specific answers ------------------------------------------------ */
 

@@ -251,6 +251,8 @@ MODERN_CONTROLS_TARGETS = {
         'selection_count': 0x00A8ECC8, 'selection_data': 0x00A8ECBC,
         'unit_vtable': 0x007F5C70, 'infantry_vtable': 0x007EB058,
         'aircraft_vtable': 0x007E22A4,
+        'attack_move_arm': 'sub_00731AF0', 'attack_move_flag': 0x00B0FE58,
+        'receive_damage': 0x005F5390, 'current_player': 0x00A83D4C, 'mission': 0xAC,
     },
     'game': {
         'message': 0x0066A467, 'radar': 0x0062FE33, 'radar_stack': 0x44,
@@ -266,6 +268,8 @@ MODERN_CONTROLS_TARGETS = {
         'selection_count': 0x00A40C70, 'selection_data': 0x00A40C64,
         'unit_vtable': 0x007ADDF8, 'infantry_vtable': 0x007A3540,
         'aircraft_vtable': 0x0079B12C,
+        'attack_move_arm': 'sub_006F6570', 'attack_move_flag': 0x00AC1330,
+        'receive_damage': 0x005D3D20, 'current_player': 0x00A35DB4,
     },
 }
 
@@ -301,11 +305,31 @@ def modern_controls_patches(target):
         # The game has already read the Windows message here. Route right
         # presses through left-button bookkeeping only when no active
         # placement/order mode needs its original right-up cancellation.
+        # First, on this thread, what the attack-move key asked: arm the
+        # game's own attack-move (the command bar button's routine, which also
+        # says "nothing selected" or "unsupported"), or cancel it.
         t['message']: (
+            '{ extern int ra2_modern_attack_move_request(void); '
+            'int _am = ra2_modern_attack_move_request(); '
+            'if (_am == 1) { uint32_t _am_a = eax, _am_c = ecx, _am_d = edx; '
+            'RECOMP_CALL(%s); RECOMP_FLAGS_IN(); eax = _am_a; ecx = _am_c; edx = _am_d; } '
+            'else if (_am == 2) MEM8(0x%08Xu) = 0; } '
             '{ extern uint32_t ra2_modern_mouse_message(uint32_t, int); '
             'int special = %s; '
             'eax = ra2_modern_mouse_message(eax, special); } '
-            '/* optional F10 Modern controls */') % special_expr,
+            '/* optional F10 Modern controls */') % (t['attack_move_arm'], t['attack_move_flag'], special_expr),
+        # A scripted run logs the damage the player's side deals, with the
+        # attacker's mission, which tells an attack-move that fought on the way
+        # (mission 29) from a plain move (2) (tools/playtest.py
+        # skirmish-attackmove). After `sub esp, 0x14` the attacker is the
+        # fourth argument and the attacking house the seventh.
+        t['receive_damage']: (
+            '{ extern void ra2_hit_logged(uint32_t, uint32_t, uint32_t, uint32_t); '
+            'ra2_hit_logged(ecx, MEM32(esp + 0x30), MEM32(0x%08Xu), %s); } '
+            '/* attack-move test aid */') % (
+                t['current_player'],
+                'MEM32(esp + 0x24) ? MEM32(MEM32(esp + 0x24) + 0x%Xu) : 0xFFFFFFFFu' % t['mission']
+                if t.get('mission') else '0xFFFFFFFFu'),
         # Keep the mapped radar flags in the stack argument as well as DL;
         # later branches in this handler read the argument again.
         t['radar']: (
@@ -463,6 +487,43 @@ def launcher_patches(target):
             for va in LAUNCHER_SITES[target]}
 
 
+# UI scale (docs/presenter.md). The sidebar lays itself out from one rect,
+# set at 0x006A5130 (game.exe 0x0067B910): below the 158-line radar, 168 wide,
+# down to the bottom of the screen (0x00886F9C, its height). Every row of build
+# icons, its buttons and its bottom piece follow from that height. With a UI
+# scale of 2 or 3, the presenter's ra2_ui_sidebar_h() shortens it to a half or
+# a third of the screen, so the whole sidebar is in the top of its strip, and
+# the presenter draws that part 2 or 3 times larger; the battlefield stays 1:1.
+# The patch goes after the lea that computes the height, before its store.
+UI_SCALE_SITES = {
+    'gamemd': (0x006A5187, 0x006A51D0),
+    'game': (0x0067B937,),
+}
+
+
+#
+# The bar under the battlefield (the Options and Diplomacy tabs, 32 lines) is
+# laid out at the bottom of the screen from its height (0x0072FE98, game.exe
+# 0x006F4ECB: y = h - 32), and the tactical view is the screen less the
+# sidebar and that bar (0x0072AD20 and 0x0072AD90, game.exe 0x006F1F30:
+# h - 32). ra2_ui_view_h() takes another 32 * (s - 1) lines off the view, so
+# the presenter can draw the bar s times taller in them; the bar itself stays
+# where the game puts it. The patch goes after the sub, before the store.
+UI_VIEW_SITES = {
+    'gamemd': (0x0072AD6D, 0x0072ADC6),
+    'game': (0x006F1F7D,),
+}
+
+
+def ui_scale_patches(target):
+    return {**{va: '{ extern int32_t ra2_ui_sidebar_h(int32_t); eax = (uint32_t)ra2_ui_sidebar_h((int32_t)eax); } '
+                   '/* remaster: UI scale, the sidebar laid out in the top of its strip (run_lift.py UI_SCALE_SITES) */'
+               for va in UI_SCALE_SITES[target]},
+            **{va: '{ extern int32_t ra2_ui_view_h(int32_t); esi = (uint32_t)ra2_ui_view_h((int32_t)esi); } '
+                   '/* remaster: UI scale, room for the bar s times taller (run_lift.py UI_VIEW_SITES) */'
+               for va in UI_VIEW_SITES[target]}}
+
+
 def apply_patches(body, patches):
     """Add each patch's C after the line that lifts its instruction."""
     for va, c in patches.items():
@@ -498,7 +559,8 @@ def targets():
                        title="Yuri's Revenge", game_frame=0x00A8ED84, stamp=0x3BDF544E,
                        patches=lambda code, cs: {**sidebar_rows_patches(code, cs), **HD_VOXEL_PATCHES,
                                                  **modern_controls_patches('gamemd'), **queue_five_patches('gamemd'),
-                                                 **clip_line_patches('gamemd'), **launcher_patches('gamemd')}),
+                                                 **clip_line_patches('gamemd'), **launcher_patches('gamemd'),
+                                                 **ui_scale_patches('gamemd')}),
         'game': dict(exe=os.path.join(_HERE, 'game', 'game.exe'),
                      catalog=os.path.join(_HERE, 'work', 'game', 'functions.json'),
                      seeds=os.path.join(_HERE, 'work', 'game', 'rtti_seeds.json'),
@@ -513,7 +575,8 @@ def targets():
                                                                      (0x0083962C, 0x00ABCD64)),
                                                **HD_VOXEL_PATCHES_GAME,
                                                **modern_controls_patches('game'), **queue_five_patches('game'),
-                                               **clip_line_patches('game'), **launcher_patches('game')}),
+                                               **clip_line_patches('game'), **launcher_patches('game'),
+                                               **ui_scale_patches('game')}),
     }
 
 
@@ -535,6 +598,8 @@ def write_target_header(out, name, t):
                            ('infantry_vtable', 'RA2_MODERN_INFANTRY_VTABLE'),
                            ('aircraft_vtable', 'RA2_MODERN_AIRCRAFT_VTABLE')):
             f.write('#define %s 0x%08Xu\n' % (macro, modern[key]))
+        f.write('#define RA2_ATTACK_MOVE_FLAG_VA 0x%08Xu   /* armed by the attack-move button */\n'
+                % modern['attack_move_flag'])
         for key, macro in (('count', 'RA2_QUEUE_FIVE_COUNT_VA'), ('index', 'RA2_QUEUE_FIVE_INDEX_VA'),
                            ('ring', 'RA2_QUEUE_FIVE_RING_VA'), ('stamps', 'RA2_QUEUE_FIVE_STAMPS_VA')):
             f.write('#define %s 0x%08Xu\n' % (macro, queue[key]))
