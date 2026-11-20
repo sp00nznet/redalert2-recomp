@@ -54,6 +54,7 @@ typedef pthread_mutex_t CRITICAL_SECTION;
 #define VirtualAlloc(a, n, t, p) calloc(1, (n))
 typedef int32_t LONG;
 #define InterlockedIncrement(p) __sync_add_and_fetch((p), 1)
+#define InterlockedExchange(p, v) __atomic_exchange_n((p), (v), __ATOMIC_SEQ_CST)
 #define MAX_PATH 4096
 #define _snprintf snprintf
 #define BI_RGB 0

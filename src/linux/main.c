@@ -362,7 +362,7 @@ static void frame_pump(void) {
         int n = ra2_vox_scale();
         if (!probe_px) probe_px = malloc((size_t)4096 * 2160 * 4);
         if (probe_px && ra2_vox_hd_show && (size_t)w * n * h * n <= (size_t)4096 * 2160)   /* the Nx frame fits */
-            hdvox_compose(px, pitch, w, h, probe_px);
+            hdvox_compose(px, pitch, w, h, probe_px, n);
         probed = now;
     }
     if ((int32_t)(now - next) < 0 || !hle_dd_frame(&px, &w, &h, &pitch, &bpp, &pal, NULL)) return;
