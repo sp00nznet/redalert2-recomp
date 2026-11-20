@@ -94,7 +94,10 @@ void ra2_tooltip_time(uint32_t buffer, int frames) {
     wchar_t* text = (wchar_t*)GUEST_PTR(buffer);
     size_t n = wcslen(text);
     int s = frames > 0 ? (frames + 14) / 15 : 0;
-    if (!ra2_buildinfo || n + 12 >= 350) return;   /* 700 bytes to the sidebar's buttons */
+    /* 132 bytes, 66 wide characters: the next global the sidebar uses is at
+     * +0x84 in both games (Yuri's Revenge 0x00B07C48, Red Alert 2 0x00AB9508,
+     * 30 references each), not the buttons at +0x2BC. */
+    if (!ra2_buildinfo || n + 12 > 66) return;
     swprintf(text + n, 12, L"\n%d:%02d", s / 60, s % 60);
     if (g_log && logged < 5) {
         logged++;
