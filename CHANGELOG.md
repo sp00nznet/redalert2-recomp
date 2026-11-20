@@ -33,7 +33,10 @@ versions follow [SemVer](https://semver.org/).
 ### Changed
 - Linux and macOS: indirect calls cache their targets (~15-30% faster in big
   skirmishes); `-DRA2_FAST_ICALLS=OFF` for a crash report with the
-  indirect-call ring (#65, profiled by @vlad-artyomov).
+  indirect-call ring (#65, profiled by @vlad-artyomov). The x87 stack is a
+  ring there too (#66, by @cpressland).
+- The voxel plotter's pixel reads run natively for a plain surface, on every
+  host: 22 to 60 fps at 1440p (#67, by @lynx8989).
 - Red Alert 2: F10's resolution asks to restart the game, which is when Red
   Alert 2 changes mode (#48, by @twessman-9).
 - The F10 resolution option now reads "(next battle)": it takes effect

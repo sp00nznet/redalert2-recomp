@@ -507,6 +507,22 @@ LAUNCHER_SITES = {   # the check, the notify
 }
 
 
+# BSurface pixel read (src/runtime/bsurface.c, from lynx8989, issue #67). The
+# voxel plotter reads two pixels per sample through Surface slot 10, six
+# virtual calls each; at 1440p that was about a third of the game thread.
+# After the function's first instruction (eax = POINT*, ecx = this) the host
+# answers for a plain BSurface and the function returns as its `ret 4` would.
+BSURFACE_GETPIXEL_SITES = {'gamemd': 0x007BAE60, 'game': 0x007741D0}
+
+
+def bsurface_fast_patches(target):
+    return {BSURFACE_GETPIXEL_SITES[target]:
+            ('{ extern int ra2_bsurf_getpixel(uint32_t, uint32_t, uint32_t*); uint32_t _px; '
+             'if (ra2_bsurf_getpixel(ecx, eax, &_px)) { eax = _px; RECOMP_FLAGS_OUT(); esp += 8; '
+             '{ RECOMP_REGS_OUT(); return; } } } '
+             '/* BSurface pixel read, run_lift.py bsurface_fast_patches */')}
+
+
 def launcher_patches(target):
     return {va: '@replace:SET_LO8(eax, 1); RECOMP_FLAGS_OUT(); esp += 4; { RECOMP_REGS_OUT(); return; } '
                 '/* launcher check 0x%08X -> mov al, 1; ret, as the Steam build (run_lift.py LAUNCHER_SITES) */' % va
@@ -665,7 +681,7 @@ def targets():
                        title="Yuri's Revenge", game_frame=0x00A8ED84, stamp=0x3BDF544E,
                        patches=lambda code, cs: {**sidebar_rows_patches(code, cs), **HD_VOXEL_PATCHES,
                                                  **modern_controls_patches('gamemd'), **queue_five_patches('gamemd'),
-                                                 **grid_keys_patches('gamemd'), **clip_line_patches('gamemd'), **launcher_patches('gamemd'),
+                                                 **grid_keys_patches('gamemd'), **clip_line_patches('gamemd'), **launcher_patches('gamemd'), **bsurface_fast_patches('gamemd'),
                                                  **view_clamp_patches('gamemd'),
                                                  **ui_scale_patches('gamemd'),
                                                  **battle_info_patches('gamemd', code, cs)}),
@@ -683,7 +699,7 @@ def targets():
                                                                      (0x0083962C, 0x00ABCD64)),
                                                **HD_VOXEL_PATCHES_GAME,
                                                **modern_controls_patches('game'), **queue_five_patches('game'),
-                                               **grid_keys_patches('game'), **clip_line_patches('game'), **launcher_patches('game'),
+                                               **grid_keys_patches('game'), **clip_line_patches('game'), **launcher_patches('game'), **bsurface_fast_patches('game'),
                                                **view_clamp_patches('game'),
                                                **ui_scale_patches('game'),
                                                **battle_info_patches('game', code, cs)}),

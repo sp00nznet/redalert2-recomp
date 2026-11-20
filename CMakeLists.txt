@@ -60,16 +60,21 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE)
   set(HLE ${PCRECOMP}/runtime/win32hle)
   file(GLOB HLE_SOURCES CONFIGURE_DEPENDS "${HLE}/*.c")
   list(FILTER HLE_SOURCES EXCLUDE REGEX "_selftest\.c$|/[.]_[^/]*$")
-  add_executable(ra2 src/linux/main.c src/linux/blowfish.c src/linux/script.c src/linux/mods.c src/linux/menu.c src/runtime/hdvox.c src/runtime/queuefive.c src/runtime/gridkeys.c ${HLE_SOURCES} ${GEN_SOURCES})
+  add_executable(ra2 src/linux/main.c src/linux/blowfish.c src/linux/script.c src/linux/mods.c src/linux/menu.c src/runtime/hdvox.c src/runtime/queuefive.c src/runtime/gridkeys.c src/runtime/bsurface.c ${HLE_SOURCES} ${GEN_SOURCES})
   target_include_directories(ra2 PRIVATE src/linux src/runtime ${GEN_DIR} ${HLE} ${PCRECOMP}/runtime/recomp32)
   target_compile_definitions(ra2 PRIVATE RECOMP_RETADDR=0u RECOMP_LOCAL_REGS)
   # win32hle runs one guest thread at a time (its machine lock), so indirect
   # calls can cache their targets: ~30% of an 8-player skirmish was spent in
   # recomp_lookup on an M1 Max, 35 -> 40-45 fps with these (#65). Turn off for
   # a crash report with the indirect-call ring.
-  option(RA2_FAST_ICALLS "Cache indirect-call targets, drop the icall trace ring" ON)
+  # Faster lifted code on win32hle (#65, #66): indirect-call targets cached per
+  # call site and in one table (safe: win32hle's machine lock runs one guest
+  # thread at a time), no icall trace ring, and the x87 stack as a ring with
+  # a function's own pushes in locals (needs a lift that writes _ST(i)).
+  option(RA2_FAST_ICALLS "Cache indirect-call targets, x87 ring, drop the icall trace ring" ON)
   if(RA2_FAST_ICALLS)
-    target_compile_definitions(ra2 PRIVATE RECOMP_RESOLVE_CACHE=16384 RECOMP_ICALL_SITE_CACHE RECOMP_NO_ICALL_TRACE)
+    target_compile_definitions(ra2 PRIVATE RECOMP_RESOLVE_CACHE=16384 RECOMP_ICALL_SITE_CACHE RECOMP_NO_ICALL_TRACE
+                                           RECOMP_X87_RING RECOMP_X87_LOCAL)
   endif()
   if(WITH_FFMPEG)
     target_compile_definitions(ra2 PRIVATE HLE_WITH_FFMPEG)
@@ -116,6 +121,7 @@ add_executable(ra2
   src/runtime/hdvox.c
   src/runtime/queuefive.c
   src/runtime/gridkeys.c
+  src/runtime/bsurface.c
   src/runtime/battleinfo.c
   ${PCRECOMP}/runtime/native32/native32.c
   ${PCRECOMP}/runtime/recomp32/image_loader.c

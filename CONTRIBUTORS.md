@@ -34,6 +34,8 @@ it play there:
   off, so the game's dialog procedures quietly ran its original machine code
   instead of the lifted C, and that Rosetta reports an instruction fetch as a
   read. Without both fixes nothing runs under Wine, on a Mac or on Linux.
+- **Faster lifted code on Linux and macOS** (#66): the x87 ring and the
+  indirect-call caches, measured at 389 -> 642 game frames a second on an M1 Pro.
 
 ### [@andersbusk](https://github.com/andersbusk)
 **Diagnosed and patched, each with its own tests:**
@@ -83,3 +85,8 @@ it play there:
 **Profiled big skirmishes on Apple Silicon** (#65): found 30% of an 8-player
 game in `recomp_lookup` and the three toolkit flags that take it from 35 to
 40-45 fps, now the default on Linux and macOS.
+
+### [@lynx8989](https://github.com/lynx8989)
+**The BSurface pixel fast path** (#67): found the voxel plotter's pixel reads
+taking about a third of the game thread at 1440p and answered them natively,
+22 to 60 fps there.
