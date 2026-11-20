@@ -592,6 +592,19 @@ static void settings_save(HWND hw) {
 #define OPT_H ((volatile int32_t*)(uintptr_t)RA2_OPT_H_VA)
 static int opt_ok(void) { return res_plausible(*OPT_W, *OPT_H); }
 
+/* Red Alert 2 sets its display mode once, before the main menu: unlike Yuri's
+ * Revenge it starts a battle in the options' size only with [Video]
+ * AllowModeToggle=yes (0x0065BF90), and with that on it faults, the original
+ * code too. So a size picked here waited for a restart and the next battle
+ * opened at the old one (4:3 with bars on a 21:9 screen). The menu offers the
+ * restart instead. */
+#ifdef RA2_TARGET_GAME
+#define RES_WHEN "restarts the game"
+#else
+#define RES_WHEN "next battle"
+#endif
+static int g_res_changed;                 /* set_game_resolution ran in this menu */
+
 static void set_game_resolution(int w, int h) {
     char path[MAX_PATH], v[16];
     GetFullPathNameA(RA2_INI_NAME, MAX_PATH, path, NULL);       /* the game runs in its folder */
@@ -600,8 +613,11 @@ static void set_game_resolution(int w, int h) {
     _snprintf(v, sizeof v - 1, "%d", h), v[sizeof v - 1] = 0;
     WritePrivateProfileStringA("Video", "ScreenHeight", v, path);
     if (opt_ok()) *OPT_W = w, *OPT_H = h;
-    fprintf(stderr, "[present] game resolution %dx%d (the next battle opens at it)\n", w, h);
+    g_res_changed = 1;
+    fprintf(stderr, "[present] game resolution %dx%d (" RES_WHEN ")\n", w, h);
 }
+
+void present_set_game_resolution(int w, int h) { set_game_resolution(w, h); }
 
 enum { ID_SCALE = 100, ID_BARS = 200, ID_FULL = 300, ID_RES = 400, ID_HDVOX = 500,
        ID_MOD = 600, ID_CONTROLS = 700 };
@@ -643,7 +659,7 @@ static void settings_menu(HWND hw) {             /* at the mouse */
                 ID_CONTROLS + 1, "Modern");
     AppendMenuA(m, MF_POPUP, (UINT_PTR)controls, "Controls");
     AppendMenuA(m, MF_SEPARATOR, 0, NULL);
-    AppendMenuA(m, MF_POPUP, (UINT_PTR)res, "Game resolution (next battle)");
+    AppendMenuA(m, MF_POPUP, (UINT_PTR)res, "Game resolution (" RES_WHEN ")");
     /* the mods in mods\<game>: choosing one restarts the game with it (mods.c) */
     AppendMenuA(mods, MF_STRING | (!mods_active()[0] ? MF_CHECKED : 0), ID_MOD, "None (the game as it shipped)");
     for (int i = 0; i < nmods; i++)
@@ -651,6 +667,7 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     if (!nmods) AppendMenuA(mods, MF_STRING | MF_GRAYED, 0, "(put mods in the mods folder: mods\\README.md)");
     AppendMenuA(m, MF_POPUP, (UINT_PTR)mods, "Mod (restarts the game)");
     GetCursorPos(&at);
+    g_res_changed = 0;
     int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, at.x, at.y, 0, hw, NULL);
     DestroyMenu(m);                                           /* and its submenus */
     if (cmd >= ID_SCALE && cmd < ID_SCALE + NMODES) g_mode = cmd - ID_SCALE;
@@ -675,6 +692,11 @@ static void settings_menu(HWND hw) {             /* at the mouse */
         return;
     }
     if (cmd) settings_save(hw);
+#ifdef RA2_TARGET_GAME
+    if (g_res_changed && MessageBoxA(hw, "Red Alert 2 changes resolution on a restart. Restart now? A game in progress is lost.",
+                                     RA2_TITLE " (recomp)", MB_YESNO | MB_ICONQUESTION) == IDYES)
+        mods_restart_with(mods_active());       /* the same mod, the same arguments */
+#endif
 }
 
 static DWORD WINAPI quit_soon(LPVOID unused) {
