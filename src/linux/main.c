@@ -116,6 +116,12 @@ void ra2_hit_logged(uint32_t victim, uint32_t house, uint32_t player, uint32_t m
  * has no picture to compose it into, so the sidebar and the view keep their full height. */
 int32_t ra2_ui_sidebar_h(int32_t h) { return h; }
 int32_t ra2_ui_view_h(int32_t h) { return h; }
+/* Battle info (src/runtime/battleinfo.c) is Windows only for now: the lift's
+ * patches find every setting off, the game as it shipped. */
+int ra2_healthbars, ra2_buildinfo;
+int ra2_healthbar_force(int health, int strength) { (void)health, (void)strength; return 0; }
+uint32_t ra2_build_pct_text(int stage) { (void)stage; return 0; }
+void ra2_tooltip_time(uint32_t buffer, int frames) { (void)buffer, (void)frames; }
 
 /* ---- game-specific answers ------------------------------------------------ */
 
