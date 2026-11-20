@@ -74,6 +74,8 @@ which becomes host arguments:
 | `--key [c][s][a]+vk@s`, `--move x,y@s`, `--click [c][s][a]+x,y@s`, `--wait VA@s` | as in civ3; a click can hold Ctrl, Shift, Alt (Ctrl+click is force-fire) |
 | `--drag x1,y1,x2,y2@s` | a band selection: button down at one corner, across, up at the other |
 | `--rdrag x1,y1,x2,y2@s` | the same with the right button, held a second at the far end: the game's right-drag scroll |
+| `--selftest-input s` | in a battle: the presenter's input path fed without a window (cursor lock, middle-drag, mouse 4/5; [presenter.md](presenter.md#input)) |
+| `--bind name=key` | not a step: a `[keys]` binding for the run, over `ra2.ini`'s |
 | `--uclick x,y@s` | the native host only: a click as the mouse gives it, to the window under the point (a menu's own control, a combo box's arrow), where `--click` goes to the game's window |
 
 `s` counts seconds from when the main menu first opened (civ3: then a script

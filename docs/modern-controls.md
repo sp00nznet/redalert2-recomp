@@ -28,6 +28,7 @@ input through unchanged, so it always plays with Classic controls.
 | Right-click a battlefield cell or object | Issue the context-sensitive order. |
 | Right-click a unit | Issue its contextual order if the game offers one; never select the clicked unit or change the current selection. |
 | Right-drag | Pan the camera using the original game behavior. |
+| Middle-drag | Pan the camera the same way (the presenter sends it as a right-drag). A plain middle click does nothing. |
 | Left-click the minimap | Center the camera on that location. |
 | Right-click the minimap | Issue the selected units' order at that location. |
 | Right-click an already selected deployable unit | Deploy it. |
@@ -201,7 +202,9 @@ The key is set in `ra2.ini`:
 attackmove=A
 ```
 
-It takes a letter or digit (`A`), or a virtual-key code (`0x41`, `VK_0x41`).
+It takes a letter or digit (`A`), a key name (`F10`, `Space`, `Numpad5`), or a
+virtual-key code (`0x41`); [presenter.md](presenter.md#input) has the whole
+`[keys]` table.
 In Modern controls, in a battle, the attack-move key reaches the presenter
 first and the game never sees it. If **A** is bound in the game's own keyboard
 options (the original games' alliance command, `ToggleAlliance`, is the one to
