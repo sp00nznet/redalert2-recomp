@@ -39,6 +39,9 @@ input through unchanged, so it always plays with Classic controls.
 | Shift + left-drag a selection rectangle | Add the units in the rectangle to the current selection; if every one of them is already selected, remove them instead. |
 | Left-click a unit already in a group selection | Replace the group with that unit. |
 
+| **A**, then left-click open ground | Attack-move: the selected units move there and fight what they meet on the way. |
+| **A**, then right-click or **Esc** | Cancel attack-move. |
+
 Active placement and order modes retain their original right-click behavior.
 The F10 shortcut on the presenter bars and menu/interface clicks are not
 remapped.
@@ -182,6 +185,74 @@ The lifted function names and callback roles were matched against the
 community-maintained [YRpp DisplayClass.h](https://github.com/Ares-Developers/YRpp/blob/master/DisplayClass.h),
 [MapClass.h](https://github.com/Ares-Developers/YRpp/blob/master/MapClass.h), and
 [GeneralDefinitions.h](https://github.com/Ares-Developers/YRpp/blob/master/GeneralDefinitions.h).
+
+## Attack-move
+
+Press **A** in a battle, then left-click open ground: the selected units go
+there and attack the enemies they meet on the way, as in modern RTS games. The
+key arms one click. A click on a unit or building is an ordinary Modern click
+(it selects), and a right-click or **Esc** cancels. With nothing selected, or
+only units that cannot attack-move, the game says so in its own message line.
+
+The key is set in `ra2.ini`:
+
+```ini
+[keys]
+attackmove=A
+```
+
+It takes a letter or digit (`A`), or a virtual-key code (`0x41`, `VK_0x41`).
+In Modern controls, in a battle, the attack-move key reaches the presenter
+first and the game never sees it. If **A** is bound in the game's own keyboard
+options (the original games' alliance command, `ToggleAlliance`, is the one to
+check), set `attackmove=` to a free key. Classic controls leave every key to
+the game.
+
+### The game's own attack-move
+
+Neither game had to be taught attack-move: both have it, behind Yuri's
+Revenge's command bar button `AttackMove` (`UICmnds.cpp`). The button's
+routine arms a flag; while it is set, the order a click gives becomes
+mission `AttackMove` (29) instead of `Move`, and the cursor becomes
+`AttackMoveNav` (action 62, over ground) or `AttackMoveTar` (63, over a
+target). The same check also answers yes while two of the game's modifier
+bindings are held together (`0x00A8EC00` and `0x00A8EC08` in Yuri's Revenge):
+the Ctrl+Shift+click attack-move. Classic controls leave that as it was.
+
+| Role | Yuri's Revenge | Red Alert 2 |
+| --- | --- | --- |
+| Arm (the command bar button's routine; "nothing selected" / "unsupported" messages) | `0x00731AF0` | `0x006F6570` |
+| The armed flag (byte) | `0x00B0FE58` | `0x00AC1330` |
+| Armed, or both modifier keys held | `0x00731BF0` | `0x006F6670` |
+| `Move` → `AttackMoveNav`, `Attack` → `AttackMoveTar` (cursor) | `0x0070F0B0` | `0x006D8F60` |
+| `TechnoClass::ClickedMission`: `Move`/`Attack` → mission 29 | `0x006FFBE0` | — |
+
+Modern controls arm it from the key. The presenter (or a script's `--key`)
+asks `ra2_modern_key`; the battlefield mouse hook (`0x00693107` /
+`0x0066A467`) then calls the arm routine on the game thread, before it routes
+the message. The mouse-up action hook passes the game's own action through
+for a ground click while the flag is set, instead of the Modern clear-selection
+click, so the order goes out as the button's would. The hook after
+`LeftMouseButtonUp` clears the flag, so it lasts one click. A right press
+while it is set clears it and is dropped, with its release.
+
+### Test
+
+`tools/playtest.py` has `skirmish-attackmove` and its control,
+`skirmish-move`: the same script with `--controls modern` (the host flag that
+sets the F10 choice headless), the same units and the same two orders, one
+with **A** before each click and one without. The skirmish map has two starts
+and the game picks one at random, so the script sends the army to both: first
+to the top-right corner, then to the bottom-left. One of the two legs crosses
+the computer player's base. In a scripted run the host logs damage dealt by
+the player's side (`[hit]`, a hook on `ObjectClass::ReceiveDamage`,
+`0x005F5390` / `0x005D3D20`) with the attacker's current mission (`+0xAC` in
+Yuri's Revenge). While a unit attack-moves its mission stays `Move` (2)
+between fights, so a hit with mission 2 is a hit on the way. The attack-move
+case must log the order and such a hit; the plain move must log neither.
+
+Red Alert 2's skirmish map has eight starts and puts the computer player at a
+random one, so its `skirmish-attackmove` checks the order only.
 
 ## Queue Five
 

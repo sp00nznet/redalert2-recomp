@@ -73,8 +73,6 @@ A `--scale` or `--fullscreen` on the command line wins over the file.
   Playtests: `res-f10-saved` picks a size (`--resolution WxH@s`), quits from
   the menu and checks the game's own save kept it; `res-next-battle` (Yuri's
   Revenge) checks the next skirmish opens at it.
-- **UI scale** (*Off*, *2x*, *3x*; `uiscale=1|2|3`) draws the sidebar, radar
-  and build icons two or three times larger while the battlefield stays 1:1,
 - **UI scale** (*Off*, *2x*, *3x*; `uiscale=1|2|3`) draws the sidebar, radar,
   build icons and the bar under the battlefield two or three times larger
   while the battlefield stays 1:1,
