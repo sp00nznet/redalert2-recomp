@@ -77,15 +77,14 @@ static int compose_hd(const uint8_t *px16, int pitch, int w, int h, uint32_t *ou
      * hdvoxels=3 in ra2.ini), so it stays out and the presenter scales the 1x
      * picture on the GPU, which shows the same: no unit is at HD yet. */
     if (!ra2_vox_hd_on || !ra2_vox_hd_show || ra2_vox_scale() != 2) return 0;
-    hdvox_compose(px16, pitch, w, h, out);
-    return 1;
+    return hdvox_compose(px16, pitch, w, h, out, 2);
 }
 /* The presenter scales the 1x frame itself; this gives it only the units' 2x
  * overlay, so the CPU no longer upscales the whole frame (docs/voxels.md). */
 static int overlay_hd(const uint8_t *px16, int pitch, int w, int h, uint32_t *ov,
                       int *dx, int *dy, int *dw, int *dh) {
     if (!ra2_vox_hd_on || !ra2_vox_hd_show) return 0;
-    return hdvox_overlay(px16, pitch, w, h, ov, dx, dy, dw, dh);
+    return hdvox_overlay(px16, pitch, w, h, ov, ra2_vox_scale(), dx, dy, dw, dh);
 }
 
 /* Modern controls (src/runtime/present.c) are a Windows presenter setting;
