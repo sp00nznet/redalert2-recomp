@@ -63,6 +63,18 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE)
   add_executable(ra2 src/linux/main.c src/linux/blowfish.c src/linux/script.c src/linux/mods.c src/linux/menu.c src/runtime/hdvox.c src/runtime/queuefive.c ${HLE_SOURCES} ${GEN_SOURCES})
   target_include_directories(ra2 PRIVATE src/linux src/runtime ${GEN_DIR} ${HLE} ${PCRECOMP}/runtime/recomp32)
   target_compile_definitions(ra2 PRIVATE RECOMP_RETADDR=0u RECOMP_LOCAL_REGS)
+  # Faster lifted code, on win32hle only (native32 has neither, and MSVC
+  # lacks the statement expressions the site cache is written with): the x87
+  # stack's push and pop move a pointer over a ring and a function's own
+  # pushes stay in locals (RECOMP_X87_RING, RECOMP_X87_LOCAL; a lift from
+  # pcrecomp after #175 writes the slots as _ST(i)); and an indirect call's
+  # target is cached, per call site and in one table (RECOMP_ICALL_SITE_CACHE,
+  # RECOMP_RESOLVE_CACHE), which win32hle's machine lock makes safe: one
+  # thread at a time runs lifted code. A headless skirmish at the fastest
+  # speed on an M1 Pro: 389 frames a second before, 642 after (the caches
+  # most of it, the x87 ring about 3%). A toolkit without them ignores them.
+  target_compile_definitions(ra2 PRIVATE RECOMP_X87_RING RECOMP_X87_LOCAL
+                                         RECOMP_RESOLVE_CACHE=16384 RECOMP_ICALL_SITE_CACHE)
   if(WITH_FFMPEG)
     target_compile_definitions(ra2 PRIVATE HLE_WITH_FFMPEG)
   endif()

@@ -21,6 +21,12 @@ versions follow [SemVer](https://semver.org/).
   these, it runs on any Apple Silicon Mac.
 
 ### Changed
+- Linux and macOS: the lifted code is built with pcrecomp's x87 ring
+  (`RECOMP_X87_RING`, `RECOMP_X87_LOCAL`) and its indirect-call caches
+  (`RECOMP_RESOLVE_CACHE`, `RECOMP_ICALL_SITE_CACHE`). A headless skirmish
+  at the fastest speed runs at 642 frames a second on an M1 Pro, from 389:
+  headroom for big battles and slower machines. The Windows build is
+  unchanged.
 - The F10 resolution option now reads "(next battle)": it takes effect
   when the next skirmish or mission starts (#30, #34).
 
