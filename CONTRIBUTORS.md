@@ -59,3 +59,27 @@ it play there:
 - **A Mac app** (#35): `tools/package_macos.py` packs the native host into a
   double-clickable `.app` with its libraries inside, and `tools/deps-macos.sh`
   builds those libraries for macOS 11, so the app runs on any Apple Silicon Mac.
+
+### [@twessman-9](https://github.com/twessman-9)
+**Big screens, modern controls and a lot of fixes, each with its playtests:**
+
+- **Ultrawide scrolling** (#42): found the view clamp at 0x006D8640 with no
+  answer when a map is narrower than the view, so it jumped every frame
+  (#27); the map is centred now.
+- **Windows' mode list** (#43): the empty Options resolution list, and the
+  crash picking from it, on Windows 11.
+- **Resolution and HD changes** (#48, #49): Red Alert 2's restart for a new
+  resolution, and HD vehicles that keep up with resolution and scale changes
+  (#34, #39).
+- **UI scale** (#44, #50): the sidebar, radar and bottom bar 2x or 3x beside a
+  1:1 battlefield.
+- **Modern controls** (#47, #53, #54): attack-move, cursor lock, middle-drag
+  pan, rebindable keys and sidebar grid hotkeys.
+- **Battle info** (#56): health bars for every or damaged object, build
+  progress and build times on the sidebar.
+- **WASAPI sound** (#52): an opt-in backend, and sound in `--record`.
+
+### Vlad Artyomov ([@vlad-artyomov](https://github.com/vlad-artyomov))
+**Profiled big skirmishes on Apple Silicon** (#65): found 30% of an 8-player
+game in `recomp_lookup` and the three toolkit flags that take it from 35 to
+40-45 fps, now the default on Linux and macOS.

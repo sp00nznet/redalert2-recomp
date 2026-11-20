@@ -19,8 +19,23 @@ versions follow [SemVer](https://semver.org/).
   pinned SHA-256. Homebrew's bottles carry the build machine's macOS as their
   minimum, so an app packaged with them runs nowhere older; built against
   these, it runs on any Apple Silicon Mac.
+- F10 > UI scale: the sidebar, radar and the bar under the battlefield drawn
+  2x or 3x beside a 1:1 battlefield, for 1440p, ultrawide and 4K screens
+  (#44, #50, by @twessman-9).
+- Modern controls: attack-move (A, then click), cursor lock in battle,
+  middle-drag pan, rebindable keys (`[keys]` in ra2.ini, mouse buttons 4/5),
+  and Alt+QWER/ASDF/ZXCV sidebar grid hotkeys (#47, #53, #54, by @twessman-9).
+- F10 > Battle info: health bars for damaged or all objects, build % and
+  build time on the sidebar; off by default (#56, by @twessman-9).
+- Windows: an opt-in WASAPI sound backend (`--audio wasapi`, or `audio=` in
+  ra2.ini), and sound in `--record` (#52, by @twessman-9).
 
 ### Changed
+- Linux and macOS: indirect calls cache their targets (~15-30% faster in big
+  skirmishes); `-DRA2_FAST_ICALLS=OFF` for a crash report with the
+  indirect-call ring (#65, profiled by @vlad-artyomov).
+- Red Alert 2: F10's resolution asks to restart the game, which is when Red
+  Alert 2 changes mode (#48, by @twessman-9).
 - The F10 resolution option now reads "(next battle)": it takes effect
   when the next skirmish or mission starts (#30, #34).
 
@@ -29,6 +44,13 @@ versions follow [SemVer](https://semver.org/).
   copies of it instead of a blur. They now blur from a small copy of the
   picture, as on Linux and macOS, and the shader no longer needs a loop that
   Wine's HLSL compiler can't unroll (#38).
+- A map smaller than the view (ultrawide) is centred instead of jumping
+  every frame and leaving parts drawn twice (#27, #42, by @twessman-9).
+- Windows: the Options resolution list was empty on Windows 11 and crashed
+  when clicked; a run after `--mute` gets its sound back (#43, by @twessman-9).
+- HD vehicles: switching 2x/3x mid-battle, and resolution changes, no longer
+  leave units over the menus or corrupt the picture (#34, #39, #49, by
+  @twessman-9).
 
 ## [0.1.3] - 2026-10-26
 
