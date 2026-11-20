@@ -63,6 +63,14 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE)
   add_executable(ra2 src/linux/main.c src/linux/blowfish.c src/linux/script.c src/linux/mods.c src/linux/menu.c src/runtime/hdvox.c src/runtime/queuefive.c src/runtime/gridkeys.c ${HLE_SOURCES} ${GEN_SOURCES})
   target_include_directories(ra2 PRIVATE src/linux src/runtime ${GEN_DIR} ${HLE} ${PCRECOMP}/runtime/recomp32)
   target_compile_definitions(ra2 PRIVATE RECOMP_RETADDR=0u RECOMP_LOCAL_REGS)
+  # win32hle runs one guest thread at a time (its machine lock), so indirect
+  # calls can cache their targets: ~30% of an 8-player skirmish was spent in
+  # recomp_lookup on an M1 Max, 35 -> 40-45 fps with these (#65). Turn off for
+  # a crash report with the indirect-call ring.
+  option(RA2_FAST_ICALLS "Cache indirect-call targets, drop the icall trace ring" ON)
+  if(RA2_FAST_ICALLS)
+    target_compile_definitions(ra2 PRIVATE RECOMP_RESOLVE_CACHE=16384 RECOMP_ICALL_SITE_CACHE RECOMP_NO_ICALL_TRACE)
+  endif()
   if(WITH_FFMPEG)
     target_compile_definitions(ra2 PRIVATE HLE_WITH_FFMPEG)
   endif()
