@@ -53,9 +53,12 @@ The game's own Options screen lists only 640x480, 800x600 and 1024x768 unless
 `[Video] AllowHiResModes=yes` is in its INI; then it lists every mode the
 display offers. On Linux and macOS the host adds that key when it isn't there
 (a `no` you set stays), and win32hle offers the sizes above up to 4K and the
-display's own size (its logical size on a Retina Mac). On Windows the modes
-are your display's, which can be larger than the presenter shows, so the key
-is left to you and F10 is the way past 1024x768.
+display's own size (its logical size on a Retina Mac). On Windows the host
+answers DirectDraw's `EnumDisplayModes` itself with 640x480 and the sizes
+above, at 16 bits (`host.c`, `hl_EnumDisplayModes`): Windows 10 and 11 list no
+16-bit modes on many displays, the list was empty, and picking from it faulted
+in the game (its mode table indexed with the combo box's -1). The key is left
+to you there, and F10 is the way past 1024x768.
 
 Yuri's Revenge only saves the size picked there, for the next battle. Red
 Alert 2 changes to it at once: a box asks to confirm, the menus come back at
