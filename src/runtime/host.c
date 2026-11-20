@@ -849,6 +849,49 @@ static DWORD WINAPI hd_frame_dumper(LPVOID unused) {
     return 0;
 }
 
+/* --shots DIR: every 3 s, the game's picture at its own size as shot_NN.bmp.
+ * The recording is scaled into the menus' 800x600, which at 3440x1440 is a
+ * quarter of the pixels: too few to tell one line of text from two
+ * (tools/playtest.py reads these for res-campaign-3440x1440). */
+static const char* g_shots_dir;
+
+static DWORD WINAPI shot_dumper(LPVOID unused) {
+    static uint32_t row[4096];                /* written from g_snap a row at a time: this is a
+                                                 32-bit process, and a frame-sized buffer of its
+                                                 own is 35 MB of the game's address space */
+    (void)unused;
+    for (int n = 0; n < 100; ) {
+        int w, h, bpp, pitch;
+        Sleep(3000);
+        EnterCriticalSection(&g_snap_lock);
+        if (!snapshot(&w, &h, &bpp, &pitch)) { LeaveCriticalSection(&g_snap_lock); continue; }
+        char path[MAX_PATH];
+        _snprintf(path, sizeof path - 1, "%s/shot_%02d.bmp", g_shots_dir, n++), path[sizeof path - 1] = 0;
+        FILE* f = fopen(path, "wb");
+        if (f) {
+            BITMAPINFOHEADER ih = { sizeof ih, w, -h, 1, 32, BI_RGB };
+            uint32_t off = 14 + sizeof ih, size = off + (uint32_t)w * h * 4, zero = 0;
+            fwrite("BM", 1, 2, f);
+            fwrite(&size, 4, 1, f), fwrite(&zero, 4, 1, f), fwrite(&off, 4, 1, f);
+            fwrite(&ih, sizeof ih, 1, f);
+            for (int y = 0; y < h; y++) {
+                const uint8_t* src = g_snap + (size_t)y * pitch;
+                if (bpp == 16) {
+                    for (int x = 0; x < w; x++) {
+                        uint16_t p = ((const uint16_t*)src)[x];
+                        uint32_t r = (p >> 11) & 31, g = (p >> 5) & 63, b = p & 31;
+                        row[x] = (r << 3 | r >> 2) << 16 | (g << 2 | g >> 4) << 8 | (b << 3 | b >> 2);
+                    }
+                    fwrite(row, 4, (size_t)w, f);
+                } else fwrite(src, 4, (size_t)w, f);
+            }
+            fclose(f);
+        }
+        LeaveCriticalSection(&g_snap_lock);
+    }
+    return 0;
+}
+
 static DWORD WINAPI recorder(LPVOID unused) {
     static uint32_t row[4096];
     uint32_t* frame = (uint32_t*)malloc((size_t)4096 * 2160 * 4);
@@ -1328,6 +1371,11 @@ int main(int argc, char** argv) {
             hdvox_configure(1, dir);
             g_hd_frames_dir = dir;
         }
+        else if (!strcmp(argv[i], "--shots") && i + 1 < argc) {
+            static char dir[MAX_PATH];
+            GetFullPathNameA(argv[++i], MAX_PATH, dir, NULL);   /* the run chdirs into game/ */
+            g_shots_dir = dir;
+        }
         else if (!strcmp(argv[i], "--original")) g_original = 1;
         else if (!strcmp(argv[i], "--probe") && i + 1 < argc && g_nprobe < MAX_PROBES)
             g_probe[g_nprobe++] = strtoul(argv[++i], NULL, 0);
@@ -1343,7 +1391,7 @@ int main(int argc, char** argv) {
             printf("usage: ra2 [--run] [--headless | --classic | [--fullscreen] [--scale sharp|smooth|crt|nearest|integer]] [--record out.mp4] [--frames N] [--exe game\\" RA2_EXE_NAME "] [--game game] [--mod NAME|none]\n"
                    "           [--press DLG:CTRL@s] [--select DLG:CTRL=N@s] [--waitlog TEXT@s] [--move|--click x,y@s] [--key [c][s][a]+vk@s] [--wait VA@s]\n"
                    "           [--watchdog S] [--probe VA] [--debuglog] [--original] [--native-trace] [--callbacks]\n"
-                   "           [--hd-voxels] [--hd-scale 2|3] [--hd-voxels-dump DIR] [--mute] [--args FILE]\n");
+                   "           [--hd-voxels] [--hd-scale 2|3] [--hd-voxels-dump DIR] [--shots DIR] [--mute] [--args FILE]\n");
             recomp_trace_help();
             return argv[i][1] == 'h' || argv[i][2] == 'h' ? 0 : 1;
         }
@@ -1401,6 +1449,7 @@ int main(int argc, char** argv) {
         input_start();
         if (!g_classic && !g_headless) present_start(g_scale_mode, g_fullscreen);
         if (g_hd_frames_dir) CloseHandle(CreateThread(NULL, 0, hd_frame_dumper, NULL, 0, NULL));
+        if (g_shots_dir) CloseHandle(CreateThread(NULL, 0, shot_dumper, NULL, 0, NULL));
         return oracle_run(exe_full, RA2_IMAGE_BASE, shims, nshims, hooks, 1);
     }
 
@@ -1449,6 +1498,7 @@ int main(int argc, char** argv) {
     input_start();
     if (!g_classic && !g_headless) present_start(g_scale_mode, g_fullscreen);
     if (g_hd_frames_dir) CloseHandle(CreateThread(NULL, 0, hd_frame_dumper, NULL, 0, NULL));
+    if (g_shots_dir) CloseHandle(CreateThread(NULL, 0, shot_dumper, NULL, 0, NULL));
     if (g_headless && ra2_vox_hd_on) CloseHandle(CreateThread(NULL, 0, hd_probe, NULL, 0, NULL));
     printf("  entering 0x%08X\n\n", ra2_entry_va);
     fflush(stdout);

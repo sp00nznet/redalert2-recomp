@@ -463,6 +463,29 @@ def launcher_patches(target):
             for va in LAUNCHER_SITES[target]}
 
 
+# The view on a map smaller than the screen (issue #27). 0x006D8640 keeps the
+# view's centre inside the map: y clamped to [ecx, eax], then x to [edi, esi],
+# each bound the map's edge plus or minus half the view. When the view is wider
+# (or taller) than the map, max < min and the clamp has no answer: a centre at
+# min is above max and moves there, the next frame it is below min and moves
+# back, so the view jumps every frame, and the game's scroll (it shifts the last
+# picture and draws only the new edge) leaves pieces of the map drawn twice.
+# Where max < min, both become their midpoint: the map centred, and no scrolling
+# along that axis. The bounds are all in registers just after `add eax, ecx`.
+# game.exe has the same function at 0x006A8C80.
+VIEW_CLAMP_SITES = {
+    'gamemd': 0x006D86BC,
+    'game': 0x006A8CFC,
+}
+
+
+def view_clamp_patches(target):
+    return {VIEW_CLAMP_SITES[target]:
+            'if ((int32_t)eax < (int32_t)ecx) ecx = eax = (uint32_t)(((int32_t)ecx + (int32_t)eax) / 2); '
+            'if ((int32_t)esi < (int32_t)edi) edi = esi = (uint32_t)(((int32_t)edi + (int32_t)esi) / 2); '
+            '/* remaster: a map smaller than the view, centred (issue #27, run_lift.py VIEW_CLAMP_SITES) */'}
+
+
 def apply_patches(body, patches):
     """Add each patch's C after the line that lifts its instruction."""
     for va, c in patches.items():
@@ -498,7 +521,8 @@ def targets():
                        title="Yuri's Revenge", game_frame=0x00A8ED84, stamp=0x3BDF544E,
                        patches=lambda code, cs: {**sidebar_rows_patches(code, cs), **HD_VOXEL_PATCHES,
                                                  **modern_controls_patches('gamemd'), **queue_five_patches('gamemd'),
-                                                 **clip_line_patches('gamemd'), **launcher_patches('gamemd')}),
+                                                 **clip_line_patches('gamemd'), **launcher_patches('gamemd'),
+                                                 **view_clamp_patches('gamemd')}),
         'game': dict(exe=os.path.join(_HERE, 'game', 'game.exe'),
                      catalog=os.path.join(_HERE, 'work', 'game', 'functions.json'),
                      seeds=os.path.join(_HERE, 'work', 'game', 'rtti_seeds.json'),
@@ -513,7 +537,8 @@ def targets():
                                                                      (0x0083962C, 0x00ABCD64)),
                                                **HD_VOXEL_PATCHES_GAME,
                                                **modern_controls_patches('game'), **queue_five_patches('game'),
-                                               **clip_line_patches('game'), **launcher_patches('game')}),
+                                               **clip_line_patches('game'), **launcher_patches('game'),
+                                               **view_clamp_patches('game')}),
     }
 
 
