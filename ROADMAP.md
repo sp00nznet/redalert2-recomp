@@ -29,7 +29,8 @@ In order; each is done when its check is in the suite or the docs.
    passes (they are opt-in, `RA2_HD_VOXEL_ANIMS=1`).
 2. **The rest of the menus** in the suite: the remaining Options screens,
    Load with a save present, WOnline as far as it goes without servers.
-3. **Audio in `--record`**, and a native reference run (the shipping exe
+3. **Audio in `--record`** (with `--audio wasapi`, docs/audio.md; the
+   default backend next), and a native reference run (the shipping exe
    recorded) to compare frames against.
 4. **Multiplayer**: a LAN match played to an end, more than two players, and
    the same across a NAT; Windows against Linux.

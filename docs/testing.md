@@ -31,6 +31,7 @@ py -3 tools/playtest.py skirmish-loop --original
 | `campaign-*` | New Campaign, then the Allied or Soviet emblem | in game, and the player not defeated |
 | `hd-scroll` | a skirmish with HD vehicles on: a minute of right-drag scrolling, the mouse over the units between drags | in game, and none of the presenter's 2x pictures (made headless at its pace) showed the units at 1x (the `[hdvox]` line's "0 with the units at 1x"), and 90% of the units' pixels at 2x (issue #14) |
 | `lan-new` | Network, then New: the LAN host's setup screen | the screen opened, no fault |
+| `audio-wasapi-*` | a skirmish, and the Sneak Peeks movie (Bink), with `--audio wasapi` | the recording has sound and it is not silence: ffmpeg's `volumedetect` peak at least -60 dB ([audio.md](audio.md)) |
 
 ## Red Alert 2 (`game.exe`)
 

@@ -280,6 +280,9 @@ dialog and control ID once that screen is open, `--select DLG:CTRL=N@s`,
 `--wait`. `--original` runs the shipping machine code under the same host.
 
 `--mute` keeps a run silent (the playtest suite and the conformance harness use it);
+`--audio wasapi` plays the sound through the host's own mixer instead of
+DirectSound, and then `--record` records the sound too (opt-in for now:
+[audio.md](audio.md)); `--audio-trace` logs the DirectSound calls;
 `--args FILE` reads more arguments from a file (a script of presses, as the
 LAN game's sides use: `tools\lan\*.args`). A script runs headless or in the
 presenter, not with `--classic`.

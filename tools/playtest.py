@@ -203,6 +203,10 @@ class Script:
         self.t += 1
         return self
 
+    def args_add(self, *args):
+        self.args += list(args)
+        return self
+
     def key(self, vk, after=0):
         self.t += after
         self.args += ['--key', '%s@%g' % (vk, self.t)]
@@ -240,6 +244,8 @@ def S():
 #   expect 'env':     environment variables for the host, {name: value}
 #   expect 'log':     {text: n}, lines the game or host prints at least n times
 #   expect 'nolog':   [text], lines it must never print
+#   expect 'audio':   the recording has sound, and not silence (ffmpeg's
+#                     volumedetect: max_volume at least -60 dB)
 CASES = {}
 
 
@@ -564,6 +570,15 @@ case('ui-scale-2x', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'St
      180, ingame=True, size=(3272, 1440), ini={'Video': {'ScreenWidth': 3272, 'ScreenHeight': 1440}},
      env={'RA2_UI_SCALE': '2'}, log={'[present] UI scale 2x: sidebar': 1, '[present] UI scale 2x: view': 1,
                                      'Set_View_Dimensions(0,0,3104,1376)': 1})
+# The WASAPI sound (--audio wasapi, audio_wasapi.c): the mixer is tapped into
+# the recording (before --mute's gain), so the sound the game made is in
+# run.mp4. A skirmish (the music, EVA, the units) and a Bink movie (its sound
+# goes through the game's DirectSound object).
+case('audio-wasapi-skirmish', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
+     .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10).args_add('--audio', 'wasapi'),
+     180, ingame=True, audio=True)
+case('audio-wasapi-movie', S().press(MAIN, 'MoviesAndCredits', MOVIES).press(MOVIES, 'SneakPeeks')
+     .args_add('--audio', 'wasapi'), 90, audio=True)
 case('res-campaign-1920x1080', SP().press(SINGLE, 'NewCampaign', CAMPAIGN).press(CAMPAIGN, 1770)
      .waitlog(INGAME).move(880, 540, after=2).key('0x48', after=10), 300, ingame=True, alive=True,
      size=(1920, 1080), ini={'Video': {'ScreenWidth': 1920, 'ScreenHeight': 1080}})
@@ -746,6 +761,18 @@ def run(name, args, seconds, expect, every, original=False):
             seen.append('overlay: %s calls, %s pixels outside the records' % ov[-1])
             if int(ov[-1][1]):
                 bad.append('%s overlay pixels outside the records (unit copies)' % ov[-1][1])
+    if expect.get('audio'):
+        vd = subprocess.run(['ffmpeg', '-hide_banner', '-nostats', '-i', mp4, '-vn', '-af', 'volumedetect', '-f', 'null',
+                             '-'], cwd=ROOT, capture_output=True, text=True, errors='replace').stderr \
+            if os.path.exists(mp4) else ''
+        peak = re.search(r'max_volume: (-?[\d.]+|-inf) dB', vd)
+        mean = re.search(r'mean_volume: (-?[\d.]+|-inf) dB', vd)
+        if not peak:
+            bad.append('no sound in the recording')
+        else:
+            seen.append('sound peak %s dB, mean %s dB' % (peak.group(1), mean.group(1) if mean else '?'))
+            if peak.group(1) == '-inf' or float(peak.group(1)) < -60:
+                bad.append('the recording is silent (peak %s dB)' % peak.group(1))
     # log: {text: at least n}, lines the game's own debug log must print
     # ("Adding event PRODUCE" for each order to build or train).
     for text, n in expect.get('log', {}).items():
