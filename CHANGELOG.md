@@ -5,6 +5,8 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-11-21
+
 ### Added
 - macOS: `tools/package_macos.py` packages the native host as a
   double-clickable .app, with its libraries inside (sdl2-compat's dlopened
