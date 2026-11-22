@@ -857,9 +857,27 @@ static void set_game_resolution(int w, int h) {
 
 void present_set_game_resolution(int w, int h) { set_game_resolution(w, h); }
 
+/* Zoom (docs/presenter.md): the battlefield z times larger on this screen.
+ * The art can't be drawn smaller, so a zoom is a game resolution of the
+ * screen's size / z, which the presenter scales back up to the screen; the
+ * sidebar grows z times with it, so the UI scale is turned off (the sidebar
+ * at most 2x). In halves: 2 is 1x, 3 is 1.5x, 4 is 2x. The size is rounded
+ * down to 8 pixels and kept at least 800x600. */
+static const int k_zoom2[] = { 2, 3, 4 };
+#define NZOOM ((int)(sizeof k_zoom2 / sizeof k_zoom2[0]))
+
+static int zoom_size(HWND hw, int z2, int* w, int* h) {
+    MONITORINFO mi = { sizeof mi };
+    GetMonitorInfoA(MonitorFromWindow(hw, MONITOR_DEFAULTTONEAREST), &mi);
+    *w = (mi.rcMonitor.right - mi.rcMonitor.left) * 2 / z2 & ~7;
+    *h = (mi.rcMonitor.bottom - mi.rcMonitor.top) * 2 / z2 & ~7;
+    if (z2 == 2) *w = ui_game_w(*w, *h);         /* 1x: the screen, with the UI scale's sidebar */
+    return *w >= 800 && *h >= 600 && *w <= 4096 && *h <= 2160;
+}
+
 enum { ID_SCALE = 100, ID_BARS = 200, ID_FULL = 300, ID_RES = 400, ID_HDVOX = 500,
        ID_MOD = 600, ID_CONTROLS = 700, ID_CURSOR_LOCK = 710, ID_UI = 800,
-       ID_BARS_MODE = 900, ID_BUILDINFO = 910 };
+       ID_BARS_MODE = 900, ID_BUILDINFO = 910, ID_ZOOM = 1000 };
 #define MAX_MENU_MODS 64
 
 static void settings_menu(HWND hw) {             /* at the mouse */
@@ -870,10 +888,11 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     HMENU hd = CreatePopupMenu();
     HMENU ui = CreatePopupMenu();
     HMENU info = CreatePopupMenu(), bars_mode = CreatePopupMenu();
+    HMENU zoom = CreatePopupMenu();
     static char mod_names[MAX_MENU_MODS][128];
     int nmods = mods_list(mod_names, MAX_MENU_MODS);
     static const char* const scale_label[NMODES] = { "Sharp (default)", "Smooth", "CRT", "Nearest", "Integer" };
-    char lbl[32], key[16];
+    char lbl[48], key[16];
     for (int i = 0; i < NMODES; i++)
         AppendMenuA(sc, MF_STRING | (i == g_mode ? MF_CHECKED : 0), ID_SCALE + i, scale_label[i]);
     AppendMenuA(bars, MF_STRING | (g_bars ? MF_CHECKED : 0), ID_BARS + 1, "Blurred");
@@ -920,6 +939,14 @@ static void settings_menu(HWND hw) {             /* at the mouse */
         AppendMenuA(m, MF_POPUP, (UINT_PTR)info, "Battle info");
     }
     AppendMenuA(m, MF_SEPARATOR, 0, NULL);
+    for (int i = 0; i < NZOOM; i++) {
+        int zw, zh, ok = zoom_size(hw, k_zoom2[i], &zw, &zh);
+        _snprintf(lbl, sizeof lbl - 1, "%d%s (%d x %d)", k_zoom2[i] / 2, k_zoom2[i] & 1 ? ".5x" : "x", zw, zh),
+            lbl[sizeof lbl - 1] = 0;
+        AppendMenuA(zoom, MF_STRING | (!ok ? MF_GRAYED : 0) |
+                    (ok && opt_ok() && *OPT_W == zw && *OPT_H == zh ? MF_CHECKED : 0), ID_ZOOM + i, lbl);
+    }
+    AppendMenuA(m, MF_POPUP, (UINT_PTR)zoom, "Zoom, the battlefield (" RES_WHEN ")");
     AppendMenuA(m, MF_POPUP, (UINT_PTR)res, "Game resolution (" RES_WHEN ")");
     /* the mods in mods\<game>: choosing one restarts the game with it (mods.c) */
     AppendMenuA(mods, MF_STRING | (!mods_active()[0] ? MF_CHECKED : 0), ID_MOD, "None (the game as it shipped)");
@@ -954,6 +981,15 @@ static void settings_menu(HWND hw) {             /* at the mouse */
         int shown = opt_ok() ? *OPT_W + (*OPT_W - ui_game_w(*OPT_W, *OPT_H)) : 0;
         InterlockedExchange(&g_ui_scale, cmd - ID_UI);
         if (shown) set_game_resolution(ui_game_w(shown, *OPT_H), *OPT_H);
+    }
+    else if (cmd >= ID_ZOOM && cmd < ID_ZOOM + NZOOM) {
+        int zw, zh;
+        if (k_zoom2[cmd - ID_ZOOM] > 2) InterlockedExchange(&g_ui_scale, 1);   /* the zoom grows the sidebar */
+        if (zoom_size(hw, k_zoom2[cmd - ID_ZOOM], &zw, &zh)) {
+            set_game_resolution(zw, zh);
+            fprintf(stderr, "[present] zoom %s: game resolution %dx%d\n",
+                    k_zoom2[cmd - ID_ZOOM] == 2 ? "1x" : k_zoom2[cmd - ID_ZOOM] == 3 ? "1.5x" : "2x", zw, zh);
+        }
     }
     else if (cmd >= ID_RES && cmd < ID_RES + NRES)       /* the size on screen, with the UI scale's sidebar */
         set_game_resolution(ui_game_w(k_res[cmd - ID_RES][0], k_res[cmd - ID_RES][1]), k_res[cmd - ID_RES][1]);
