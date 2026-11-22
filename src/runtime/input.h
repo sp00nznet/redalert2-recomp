@@ -49,6 +49,11 @@ enum {
     KEY_SCALING,        /* F12: the next scaling mode */
     KEY_MOUSE4,         /* the key mouse button 4 (back) sends; 0: none */
     KEY_MOUSE5,         /* ... button 5 (forward) */
+    KEY_IDLEHARV,       /* Modern controls: select the next idle harvester (orders.c) */
+    KEY_IDLEUNIT,       /* ... the next idle combat unit */
+    KEY_FASTER,         /* Modern controls, single player: game speed up (orders.c) */
+    KEY_SLOWER,         /* ... down */
+    KEY_PAUSE,          /* ... pause and resume */
     KEY_COUNT
 };
 int         input_key(int id);                   /* the bound virtual key, 0 if none */
