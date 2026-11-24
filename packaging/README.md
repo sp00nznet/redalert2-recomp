@@ -12,9 +12,10 @@ their own copy of the game is, in a per-user copy at
 | AUR | `aur/PKGBUILD` (`redalert2-recomp-git`) | built by users with `yay`/`paru`/`makepkg` |
 | 1-liner | `install.sh` | user-level install, any distro |
 
-`common/` holds the desktop files, the icon, and the man pages installed
-by both. The AUR `PKGBUILD` embeds the same wrapper logic inline so it
-works standalone (it builds from upstream `main`).
+`common/` holds the desktop files and the icon used by `install.sh`. The
+AUR `PKGBUILD` embeds its wrappers and man pages inline so it is
+standalone (it builds from upstream `main`, where `packaging/` does not
+exist yet).
 
 ## AUR
 
@@ -37,6 +38,11 @@ NOTE: generate `.SRCINFO` from a pristine copy only. A full `makepkg` run
 rewrites `pkgver=`/`pkgrel=` in the build directory's PKGBUILD, so an
 `.SRCINFO` made afterwards freezes a stale version — always re-copy the
 PKGBUILD first if that directory has ever built.
+
+`pkgver()` follows the upstream tags (`git describe`, e.g. `v0.1.4-3-gabcdef0`
+becomes `0.1.4.r3.gabcdef0`), so tagging a release needs no PKGBUILD edit;
+only the `pkgver=` starting value and the `.SRCINFO` snapshot age while the
+package is not rebuilt.
 
 ## The 1-liner
 
